@@ -1,0 +1,68 @@
+/* 
+
+    JaCaMo Project File 
+    
+    This file defines the initial state of the MAS (initial agents, environment, organisation, ....)
+    
+    (see below the documentation about what can be defined in this file)
+
+*/
+
+mas intBotnet {
+
+agent testeOmnet : testeOmnet.asl {
+    //beliefs: message("SuperAgent")
+    focus: 	w1.a1
+	}
+
+	/*
+   //The agents
+    agent superAgent : superAgent.asl {
+    //beliefs: message("SuperAgent")
+    focus: 	w1.a1
+	}
+	agent reconAgent : reconAgent.asl {
+    //beliefs: message("ReconAgent")
+    focus: 	w1.a1
+	}
+	agent writer : writer.asl {
+		//beliefs:	message("Writer Agent")
+		focus:		w1.a1
+	}
+	//agent defend : defendAgent.asl {
+		//beliefs:	message("Defend Agent")
+		//focus: w1
+	//}
+	
+	
+	*/
+	
+	
+	workspace w1 {
+		artifact a1:simulator.Control
+	}
+	
+	// The Cartago environment
+	/* 
+	workspace sagent {
+    artifact gui: display.GUIConsole("Super")
+    debug 
+	}
+	
+	workspace ragent {
+    artifact gui: display.GUIConsole("Recon")
+    debug 
+	}
+	
+	workspace writer {
+    artifact gui: display.GUIConsole("Writer")
+    debug 
+	}
+	workspace defend {
+		artifact gui: display.GUIConsole("Defend")
+		debug
+	}*/
+	
+	 asl-path: src/agt
+              src/agt/inc
+}
