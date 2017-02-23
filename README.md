@@ -5,6 +5,6 @@ This project is under development.
 
 Requirement: Omnet++ and Inet library.
 
-To start using SimBo, just drop 'felipe' folder under inet/applications project tree.
+To start using SimBo, just drop 'Simbo' folder under inet/applications project tree.
 
 For more information, felipebalabanian@gmail.com
