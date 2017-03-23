@@ -35,6 +35,10 @@ namespace inet {
 
 class INET_API AppClient : public TCPAppBase, public ILifecycle{
 
+public:
+    AppClient(){};
+    virtual ~AppClient();
+
 protected:
     cMessage *timeoutMsg = nullptr;
     NodeStatus *nodeStatus = nullptr;
@@ -50,7 +54,7 @@ protected:
 
     std::default_random_engine generator;
 
-    virtual void rescheduleOrDeleteTimer(simtime_t d, short int msgKind);
+    //virtual void rescheduleOrDeleteTimer(simtime_t d, short int msgKind);
 
     virtual int numInitStages() const override { return NUM_INIT_STAGES; }
     virtual void initialize(int stage) override;
@@ -73,9 +77,6 @@ protected:
     virtual void reagendar(short int msgKind, void *comunicado);
     virtual void reagendarComTime(simtime_t d, short int msgKind, void *comunicado);
 
-public:
-    AppClient(){};
-    virtual ~AppClient();
 };
 
 } /* namespace inet */

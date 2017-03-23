@@ -36,11 +36,15 @@ class INET_API BotnetInterface {
 public:
 
 
-    //BotnetInterface(BotnetApp *);
-    //virtual ~BotnetInterface();
+    BotnetInterface(BotnetApp *){};
+    BotnetInterface(){};
+    virtual ~BotnetInterface(){};
 
    //BotnetApp *obj;
     Topologia topologia;
+    std::vector<CellTopo> subBotnet;
+    std::vector<CellTopo>::iterator it;
+    int maxNumDropOut;
 
    //Ciclo tradicional
    virtual void inicia(){}

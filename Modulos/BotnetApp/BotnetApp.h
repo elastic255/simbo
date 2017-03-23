@@ -74,7 +74,8 @@ class INET_API BotnetApp : public TCPAppBase, public ILifecycle
 
     enum TipoExtMsg: int  {TEM_INVASION,
                            TEM_VIVO,
-                           TEM_COMANDO};
+                           TEM_COMANDO,
+                           TEM_REPASSACOMANDO};
 
 
   protected:
@@ -85,7 +86,6 @@ class INET_API BotnetApp : public TCPAppBase, public ILifecycle
 
 
     virtual void sendRequest(void *);
-    virtual void rescheduleOrDeleteTimer(simtime_t d, short int msgKind);
 
     virtual int numInitStages() const override { return NUM_INIT_STAGES; }
     virtual void initialize(int stage) override;
@@ -101,7 +101,7 @@ class INET_API BotnetApp : public TCPAppBase, public ILifecycle
     ////MINHAS FUNÇÕES
   protected:
     virtual void sendPacket(cPacket *,int);
-    TCPSocket *tempSocket;  //Porta para resolver recebimento de pacotes.
+    TCPSocket *tempSocket;  //Porta para resolver pacotes recebidos.
 
 
 
@@ -122,6 +122,7 @@ class INET_API BotnetApp : public TCPAppBase, public ILifecycle
     virtual bool isInfected();
     virtual void mudaIconeBotnet();
     virtual void resolveMyIp();
+    virtual void EnterMethodSilentBotnetApp();
 
     virtual void sendAliveFeedBack();
 

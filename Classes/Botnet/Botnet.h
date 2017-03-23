@@ -56,7 +56,11 @@ public:
    void prospectaSuperficies();
 
    virtual void invadeSistemas();
+   virtual bool aliveFeedback(int connId);
+   virtual bool recebeComando(void *);
 
+   virtual void invadeUmSistema(L3Address ip);
+   void redefinirCC(L3Address ip);
    virtual bool infectaApp(int, void*);
 
    virtual L3Address myip();

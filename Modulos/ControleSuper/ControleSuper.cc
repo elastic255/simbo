@@ -20,7 +20,7 @@
 #include "inet/applications/simbo/Modulos/ControleSuper/ControleComunicacao.h"
 #include "inet/applications/simbo/Modulos/ControleSuper/ControleComandos.h"
 #include <cstring>
-#define PItempo 2
+//#define PItempo 60
 
 namespace inet {
 
@@ -37,7 +37,7 @@ void ControleSuper::initialize(int stage){
     cSimpleModule::initialize(stage);
 
     if (stage == INITSTAGE_LOCAL) {
-        remarca(0, PItempo);
+        remarca(0, par("periodoComunicacao").longValue());
 
         //TODO: criar uma maneira de inserção na lista dinâmica, sem depender de hardcode.
         if(par("matlab").boolValue() == true){
@@ -67,7 +67,7 @@ void ControleSuper::EndAll(){
 }
 
 void ControleSuper::remarca(int f, simtime_t g){
-        timerCS = new cMessage("newtimer");
+        timerCS = new cMessage("ControleSuper");
         simtime_t d = simTime()+g;
         timerCS->setKind(f);
         scheduleAt(d, timerCS);
@@ -96,7 +96,7 @@ void ControleSuper::handleTimer(cMessage *msg){
     lista.reflesh();
 
     cancelAndDelete(msg);
-    remarca(0, PItempo);
+    remarca(0, par("periodoComunicacao").longValue());
 }
 
 void ControleSuper::escreveArquivoDadosSniffer(){
@@ -146,7 +146,6 @@ void ControleSuper::finish(){
 
 
 ControleSuper::~ControleSuper() {
-    finish();
 }
 
 } /* namespace inet */

@@ -18,17 +18,26 @@ typedef struct CellTopo{
     int connId;
     TCPSocket socket;
     std::vector<int> vulnerabilidade;
+    int NumDropOut = 0;
 }CellTopo;
 
 class Topologia {
 public:
 
-    int classid = 1;
+    int unitId = 1;
     std::vector<CellTopo> topo;
     std::vector<CellTopo>::iterator it;
 
-    virtual void addIp(L3Address);
-    virtual void addIp(std::vector<L3Address>);
+    virtual int addIp(L3Address);
+    virtual int addIp(std::vector<L3Address>);
+
+    bool apagarConnId(int connId);
+    bool apagarId(int id);
+    bool apagarAddress(L3Address address);
+
+    CellTopo* getTopoById(int id);
+    bool getEstruturaConnId(int connId, CellTopo* oi);
+    bool getEstruturaId(int id, CellTopo* oi);
 
     virtual void addVulnerabilidadeAll(int vulnerabilidade);
 

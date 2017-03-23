@@ -1,0 +1,5 @@
+#Arquivos a ser ignorados#
+*.txt
+*.sca
+*.vci
+*.vec

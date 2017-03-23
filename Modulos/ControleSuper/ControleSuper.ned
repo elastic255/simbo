@@ -13,5 +13,6 @@ simple ControleSuper
         bool matlab = default(false);
         bool jacamo = default(false);
         bool javaconsole = default(false);
+        int periodoComunicacao = default(60);
 }
 

@@ -18,8 +18,10 @@
 
 cplusplus {{
 #include "inet/common/INETDefs.h"
-}}
+#include "inet/applications/simbo/Classes/Botnet/BotnetCommandStruct.h"
 
+}}
+class noncobject BotnetCommandStruct;
 namespace inet;
 
 packet BotnetAppMsg
@@ -27,6 +29,7 @@ packet BotnetAppMsg
 	int acao;
 	int vulnerabilidade;
 	int dado;
+	BotnetCommandStruct BCS;
 }
 
 

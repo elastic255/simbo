@@ -1,5 +1,5 @@
 //
-// Generated file, do not edit! Created by nedtool 5.0 from inet/applications/felipe/Modulos/BotnetApp/BotnetAppMsg.msg.
+// Generated file, do not edit! Created by nedtool 5.0 from inet/applications/simbo/Modulos/BotnetApp/BotnetAppMsg.msg.
 //
 
 // Disable warnings about unused variables, empty switch stmts, etc:
@@ -193,6 +193,7 @@ void BotnetAppMsg::copy(const BotnetAppMsg& other)
     this->acao = other.acao;
     this->vulnerabilidade = other.vulnerabilidade;
     this->dado = other.dado;
+    this->BCS = other.BCS;
 }
 
 void BotnetAppMsg::parsimPack(omnetpp::cCommBuffer *b) const
@@ -201,6 +202,7 @@ void BotnetAppMsg::parsimPack(omnetpp::cCommBuffer *b) const
     doParsimPacking(b,this->acao);
     doParsimPacking(b,this->vulnerabilidade);
     doParsimPacking(b,this->dado);
+    doParsimPacking(b,this->BCS);
 }
 
 void BotnetAppMsg::parsimUnpack(omnetpp::cCommBuffer *b)
@@ -209,6 +211,7 @@ void BotnetAppMsg::parsimUnpack(omnetpp::cCommBuffer *b)
     doParsimUnpacking(b,this->acao);
     doParsimUnpacking(b,this->vulnerabilidade);
     doParsimUnpacking(b,this->dado);
+    doParsimUnpacking(b,this->BCS);
 }
 
 int BotnetAppMsg::getAcao() const
@@ -239,6 +242,16 @@ int BotnetAppMsg::getDado() const
 void BotnetAppMsg::setDado(int dado)
 {
     this->dado = dado;
+}
+
+BotnetCommandStruct& BotnetAppMsg::getBCS()
+{
+    return this->BCS;
+}
+
+void BotnetAppMsg::setBCS(const BotnetCommandStruct& BCS)
+{
+    this->BCS = BCS;
 }
 
 class BotnetAppMsgDescriptor : public omnetpp::cClassDescriptor
@@ -305,7 +318,7 @@ const char *BotnetAppMsgDescriptor::getProperty(const char *propertyname) const
 int BotnetAppMsgDescriptor::getFieldCount() const
 {
     omnetpp::cClassDescriptor *basedesc = getBaseClassDescriptor();
-    return basedesc ? 3+basedesc->getFieldCount() : 3;
+    return basedesc ? 4+basedesc->getFieldCount() : 4;
 }
 
 unsigned int BotnetAppMsgDescriptor::getFieldTypeFlags(int field) const
@@ -320,8 +333,9 @@ unsigned int BotnetAppMsgDescriptor::getFieldTypeFlags(int field) const
         FD_ISEDITABLE,
         FD_ISEDITABLE,
         FD_ISEDITABLE,
+        FD_ISCOMPOUND,
     };
-    return (field>=0 && field<3) ? fieldTypeFlags[field] : 0;
+    return (field>=0 && field<4) ? fieldTypeFlags[field] : 0;
 }
 
 const char *BotnetAppMsgDescriptor::getFieldName(int field) const
@@ -336,8 +350,9 @@ const char *BotnetAppMsgDescriptor::getFieldName(int field) const
         "acao",
         "vulnerabilidade",
         "dado",
+        "BCS",
     };
-    return (field>=0 && field<3) ? fieldNames[field] : nullptr;
+    return (field>=0 && field<4) ? fieldNames[field] : nullptr;
 }
 
 int BotnetAppMsgDescriptor::findField(const char *fieldName) const
@@ -347,6 +362,7 @@ int BotnetAppMsgDescriptor::findField(const char *fieldName) const
     if (fieldName[0]=='a' && strcmp(fieldName, "acao")==0) return base+0;
     if (fieldName[0]=='v' && strcmp(fieldName, "vulnerabilidade")==0) return base+1;
     if (fieldName[0]=='d' && strcmp(fieldName, "dado")==0) return base+2;
+    if (fieldName[0]=='B' && strcmp(fieldName, "BCS")==0) return base+3;
     return basedesc ? basedesc->findField(fieldName) : -1;
 }
 
@@ -362,8 +378,9 @@ const char *BotnetAppMsgDescriptor::getFieldTypeString(int field) const
         "int",
         "int",
         "int",
+        "BotnetCommandStruct",
     };
-    return (field>=0 && field<3) ? fieldTypeStrings[field] : nullptr;
+    return (field>=0 && field<4) ? fieldTypeStrings[field] : nullptr;
 }
 
 const char **BotnetAppMsgDescriptor::getFieldPropertyNames(int field) const
@@ -419,6 +436,7 @@ std::string BotnetAppMsgDescriptor::getFieldValueAsString(void *object, int fiel
         case 0: return long2string(pp->getAcao());
         case 1: return long2string(pp->getVulnerabilidade());
         case 2: return long2string(pp->getDado());
+        case 3: {std::stringstream out; out << pp->getBCS(); return out.str();}
         default: return "";
     }
 }
@@ -449,6 +467,7 @@ const char *BotnetAppMsgDescriptor::getFieldStructName(int field) const
         field -= basedesc->getFieldCount();
     }
     switch (field) {
+        case 3: return omnetpp::opp_typename(typeid(BotnetCommandStruct));
         default: return nullptr;
     };
 }
@@ -463,6 +482,7 @@ void *BotnetAppMsgDescriptor::getFieldStructValuePointer(void *object, int field
     }
     BotnetAppMsg *pp = (BotnetAppMsg *)object; (void)pp;
     switch (field) {
+        case 3: return (void *)(&pp->getBCS()); break;
         default: return nullptr;
     }
 }

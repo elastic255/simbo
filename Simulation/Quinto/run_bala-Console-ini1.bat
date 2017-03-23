@@ -1,0 +1,1 @@
+opp_run.exe -u Cmdenv -r 0 -n D:\desenvolvimento\omnet\omnetpp-5.0\samples\inet\src\;D:\desenvolvimento\omnet\omnetpp-5.0\samples\inet\src\inet\applications\simbo\Simulation\Quinto -l D:\desenvolvimento\omnet\omnetpp-5.0\samples\inet\out\gcc-debug\src\libINET.dll  D:\desenvolvimento\omnet\omnetpp-5.0\samples\inet\src\inet\applications\simbo\Simulation\Quinto\net1.ini

@@ -91,6 +91,7 @@ ControleComandos::~ControleComandos() {
 ///////////////////////////////////////////////////////////////////////////////
 
 void ControleComandos::Tinfecta(){
+    // Tinfecta nome;
     char str[256];
     char *nome2 = (char *)malloc(sizeof(char)*256);
     char *nome1 = getNextToken();
@@ -99,10 +100,10 @@ void ControleComandos::Tinfecta(){
     nome2 = strcat(nome2,nome1);
     nome2 = strcat(nome2, "..tcpApp[1]");
     BotnetApp* mod = check_and_cast<BotnetApp*>(ModSim->getModuleByPath(nome2));
-    if(mod == nullptr){throw cRuntimeError(" Modulo nao encontrado no ipcomputador(ControleComandos.cc)");}
+    if(mod == nullptr){throw cRuntimeError(" BotnetApp nao encontrado no ipcomputador(ControleComandos.cc)");}
 
     IPv4RoutingTable* tabela2 = (IPv4RoutingTable*) ModSim->getModuleByPath(".inicial.routingTable");
-    if(tabela2 == nullptr){throw cRuntimeError(" Modulo nao encontrado no ipcomputador(ControleComandos.cc)");}
+    if(tabela2 == nullptr){throw cRuntimeError(" IPv4RoutingTable nao encontrado no ipcomputador(ControleComandos.cc)");}
     L3Address ip = tabela2->getRouterIdAsGeneric();
 
     mod->Global1(0,(void*)&ip);
@@ -289,7 +290,8 @@ void ControleComandos::ipcomputador(){
 }
 
 void ControleComandos::Finish(){
-    throw cTerminationException("Simulacao Terminada por ControleComandos.");
+    throw cTerminationException(E_ENDSIM);
+    //throw cTerminationException("Simulacao Terminada por ControleComandos.");
 }
 
 /*

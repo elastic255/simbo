@@ -16,47 +16,47 @@ Define_Module(BotnetApp);
 
 void BotnetApp::initialize(int stage)
 {
-
-    botnet = new Botnet(this);
-
-
-    if(par("localPort").longValue() == -1){ par("localPort").setLongValue(10022);}
-    if(par("infectado").boolValue()){estado = OP_INFECTADO;}else{estado = OP_SAUDAVEL;}
-    if(strcmp(getParentModule()->getName(),"inicial") == 0 && par("infectado").boolValue()){estado = OP_MASTER;}
-    //TODO generalizar o nome do botmaster para qualquer outro além de inicial.
-    TCPAppBase::initialize(stage);
+    try{
+        if(par("localPort").longValue() == -1){ par("localPort").setLongValue(10022);}
+        if(par("infectado").boolValue()){estado = OP_INFECTADO;}else{estado = OP_SAUDAVEL;}
+        if(par("botmaster").boolValue()){estado = OP_MASTER;}
+        TCPAppBase::initialize(stage);
 
 
-    if (stage == INITSTAGE_LOCAL) {
-        bytesRcvd = 0;
-        WATCH(bytesRcvd);
-        startTime = par("startTime");
-        stopTime = par("stopTime");
-        if (stopTime >= SIMTIME_ZERO && stopTime < startTime)
-            throw cRuntimeError("Invalid startTime/stopTime parameters");
-    }
-
-    else if (stage == INITSTAGE_APPLICATION_LAYER) {
-
-        ///////////////////////////////////////////// parametros
-        const char *localAddress = par("localAddress");
-        int localPort = par("localPort");
-        serverSocket.readDataTransferModePar(*this);
-        serverSocket.bind(*localAddress ? L3AddressResolver().resolve(localAddress) : L3Address(), localPort);
-        serverSocket.setCallbackObject(this);
-        serverSocket.setOutputGate(gate("tcpOut"));
-        setStatusString("waiting");
-        serverSocket.listen();
-        /////////////////////////////////////////////
-
-        timeoutMsg = new cMessage("timeoutMsg");
-        nodeStatus = dynamic_cast<NodeStatus *>(findContainingNode(this)->getSubmodule("status"));
-        if (isNodeUp()) {
-            //timeoutMsg->setKind(MSG_INICIA);
-            //scheduleAt(startTime, timeoutMsg);
-            remarca(MSG_INICIA);
+        if (stage == INITSTAGE_LOCAL) {
+            bytesRcvd = 0;
+            WATCH(bytesRcvd);
+            startTime = par("startTime");
+            stopTime = par("stopTime");
+            if (stopTime >= SIMTIME_ZERO && stopTime < startTime)
+                throw cRuntimeError("Invalid startTime/stopTime parameters");
         }
-    }
+        else if (stage == INITSTAGE_APPLICATION_LAYER) {
+
+            ///////////////////////////////////////////// parametros
+            const char *localAddress = par("localAddress");
+            int localPort = par("localPort");
+            serverSocket.readDataTransferModePar(*this);
+            serverSocket.bind(*localAddress ? L3AddressResolver().resolve(localAddress) : L3Address(), localPort);
+            serverSocket.setCallbackObject(this);
+            serverSocket.setOutputGate(gate("tcpOut"));
+            setStatusString("waiting");
+            serverSocket.listen();
+            /////////////////////////////////////////////
+
+            timeoutMsg = new cMessage("timeoutMsg");
+            nodeStatus = dynamic_cast<NodeStatus *>(findContainingNode(this)->getSubmodule("status"));
+
+            if(strcmp(par("typeOfBot"),"EPS")){
+                botnet = new Botnet(this);
+                if (isNodeUp()) {
+                    remarca(MSG_INICIA);
+                    }
+            }else{
+                    botnet = new Botnet(this);
+                    }
+        }
+    }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::initialize ,Erro:%s",ba.what());}
 }
 
 void BotnetApp::handleTimer(cMessage *msg)
@@ -64,79 +64,105 @@ void BotnetApp::handleTimer(cMessage *msg)
     //Lista de mensagens internas ou timers internos.
  //TODO marca
     int timeAF;
-
+    try{
     switch (msg->getKind()){
+
         case MSG_INICIA:
-            resolveMyIp();
-            botnet->inicia();
-            inicia();
-            break;
+            try{
+                resolveMyIp();
+                botnet->inicia();
+                inicia();
+                break;
+            }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_INICIA,Erro:%s",ba.what());}
 
         case MSG_TOPOLOGIA:
-            botnet->prospectaTopologia();
-            remarca(MSG_VERIFICA_TOPOLOGIA, 3);
-            break;
+            try{
+                botnet->prospectaTopologia();
+                remarca(MSG_VERIFICA_TOPOLOGIA, 3);
+                break;
+            }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_TOPOLOGIA,Erro:%s",ba.what());}
 
         case MSG_VERIFICA_TOPOLOGIA:
-            if (botnet->verificaProspectaTopologia()){remarca(MSG_TERMINO_TOPOLOGIA);}else{remarca(MSG_VERIFICA_TOPOLOGIA, 3);}
-            break;
+            try{
+                if (botnet->verificaProspectaTopologia()){remarca(MSG_TERMINO_TOPOLOGIA);}else{remarca(MSG_VERIFICA_TOPOLOGIA, 3);}
+                break;
+            }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_VERIFICA_TOPOLOGIA,Erro:%s",ba.what());}
 
         case MSG_TERMINO_TOPOLOGIA:
-             botnet->terminoProspectaTopologia();
-             remarca(MSG_SUPERFICIE);
-            break;
+            try{
+                 botnet->terminoProspectaTopologia();
+                 remarca(MSG_SUPERFICIE);
+                break;
+            }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_TERMINO_TOPOLOGIA,Erro:%s",ba.what());}
 
         case MSG_SUPERFICIE:
-            botnet->prospectaSuperficies();
-            remarca(MSG_VERIFICA_SUPERFICIE, 3);
-            break;
+            try{
+                botnet->prospectaSuperficies();
+                remarca(MSG_VERIFICA_SUPERFICIE, 3);
+                break;
+            }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_SUPERFICIE,Erro:%s",ba.what());}
 
         case MSG_VERIFICA_SUPERFICIE:
-            if (botnet->verificaProspectaSuperficie()){remarca(MSG_TERMINO_SUPERFICIE);}else{remarca(MSG_VERIFICA_SUPERFICIE, 3);}
-            break;
+            try{
+                if (botnet->verificaProspectaSuperficie()){remarca(MSG_TERMINO_SUPERFICIE);}else{remarca(MSG_VERIFICA_SUPERFICIE, 3);}
+                break;
+            }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_VERIFICA_SUPERFICIE,Erro:%s",ba.what());}
 
         case MSG_TERMINO_SUPERFICIE:
-            botnet->terminoProspectaSuperficie();
-            remarca(MSG_INVASAO);
-            break;
+            try{
+                botnet->terminoProspectaSuperficie();
+                remarca(MSG_INVASAO);
+                break;
+            }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_TERMINO_SUPERFICIE,Erro:%s",ba.what());}
 
         case MSG_INVASAO:
-            botnet->invadeSistemas();
-            remarca(MSG_VERIFICA_INVASAO);
-            break;
+            try{
+                botnet->invadeSistemas();
+                remarca(MSG_VERIFICA_INVASAO);
+                break;
+            }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_INVASAO,Erro:%s",ba.what());}
 
         case MSG_VERIFICA_INVASAO:
-            if (botnet->verificaInvadeSistemas()){remarca(MSG_TERMINO_INVASAO);}else{remarca(MSG_VERIFICA_INVASAO, 3);}
-            break;
+            try{
+                if (botnet->verificaInvadeSistemas()){remarca(MSG_TERMINO_INVASAO);}else{remarca(MSG_VERIFICA_INVASAO, 3);}
+                break;
+            }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_VERIFICA_INVASAO,Erro:%s",ba.what());}
 
         case MSG_TERMINO_INVASAO:
-            botnet->terminoInvadeSistemas();
-            remarca(MSG_FINALIZA);
-            break;
+            try{
+                botnet->terminoInvadeSistemas();
+                remarca(MSG_FINALIZA);
+                break;
+            }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_TERMINO_INVASAO,Erro:%s",ba.what());}
 
         case MSG_FINALIZA:
-            botnet->finaliza();
-            break;
+            try{
+                botnet->finaliza();
+                break;
+            }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_FINALIZA,Erro:%s",ba.what());}
 
         case MSG_SEND_ALIVE_FEEDBACK:
-            sendAliveFeedBack();
-            timeAF = botnet->isSetTimerAliveFeedback();
-            if(timeAF >= 0){remarca(MSG_SEND_ALIVE_FEEDBACK,timeAF);}
-            break;
-
-        case MSGKIND_CONNECT:
-            //TODO retirar - função legada.
-            //connect();
-            break;
+            try{
+                sendAliveFeedBack();
+                timeAF = botnet->isSetTimerAliveFeedback();
+                if(timeAF >= 0){remarca(MSG_SEND_ALIVE_FEEDBACK,timeAF);}
+                break;
+            }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_SEND_ALIVE_FEEDBACK,Erro:%s",ba.what());}
 
         case MSGKIND_SEND:
-            sendRequest(msg->getContextPointer());
-            free(msg->getContextPointer());
-            break;
+            try{
+                sendRequest(msg->getContextPointer());
+                free(msg->getContextPointer());
+                break;
+            }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSGKIND_SEND,Erro:%s",ba.what());}
 
         default:
             throw cRuntimeError("Mensagem Interna Invalida do tipo(kindId)=%d", msg->getKind());
-    }
+
+        }
+    }catch (std::exception& ba){
+                throw cRuntimeError("######BotnetApp::handleTimer::switch, Erro:%s", ba.what());
+            }
 
 
     //delete msg;
@@ -149,11 +175,11 @@ void BotnetApp::handleMessage(cMessage *msg)
         handleTimer(msg);
     else{
         try{
+
             tempSocket = new TCPSocket(msg);
             tempSocket->setCallbackObject(this);
             tempSocket->processMessage(msg);
             delete tempSocket;
-            cancelAndDelete(msg);
         }catch (std::bad_alloc& ba){
             throw cRuntimeError("######Erro bad_alloc em handleMessage(BotnetAPP), Erro:%s", ba.what());
         }
@@ -186,15 +212,28 @@ void BotnetApp::socketEstablished(int connId, void *ptr)
 
 void BotnetApp::socketDataArrived(int connId, void *ptr, cPacket *msg, bool urgent)
 {
-
+    TCPSocket* tmp;
     BotnetAppMsg *appmsg = dynamic_cast<BotnetAppMsg *>(msg);
         if(appmsg){
 
-            if(appmsg->getAcao() == TEM_INVASION){botnet->infectaApp(appmsg->getVulnerabilidade(), msg->getContextPointer());}
+            if(appmsg->getAcao() == TEM_INVASION){
+                botnet->infectaApp(appmsg->getVulnerabilidade(), msg->getContextPointer());
+            }
 
-            if(appmsg->getAcao() == TEM_VIVO){botnet->aliveFeedback(connId);}
+            if(appmsg->getAcao() == TEM_COMANDO){
+                botnet->recebeComando(msg->getContextPointer());
+            }
 
-            if(appmsg->getAcao() == TEM_COMANDO){botnet->recebeComando(msg->getContextPointer());}
+            if(appmsg->getAcao() == TEM_VIVO){
+                botnet->aliveFeedback(connId);
+            }else{
+                //precisa da conexão aberta para continuar mandando keepalives
+                tmp = botnet->topologia.getSocketPtr(connId);
+                botnet->topologia.apagarConnId(connId);
+                if(tmp){
+                    tmp->close();
+                }
+            }
 
             /*
             else if (socket.getState() != TCPSocket::LOCALLY_CLOSED) {
@@ -202,6 +241,7 @@ void BotnetApp::socketDataArrived(int connId, void *ptr, cPacket *msg, bool urge
                 close();
             }
             */
+
             TCPAppBase::socketDataArrived(connId, ptr, msg, urgent);
         }
 }
@@ -227,7 +267,7 @@ void BotnetApp::sendRequest(void *p)
         msg->setByteLength(200);
         msg->setContextPointer(&myip);
     }catch (std::bad_alloc& ba){
-        throw cRuntimeError("######Erro bad_alloc em 2, Erro:%s", ba.what());
+        throw cRuntimeError("Aviso!!! ######Erro bad_alloc em 2, Erro:%s", ba.what());
     }
 
     EV_INFO << "sending request with " << requestLength << " bytes, expected reply length " << replyLength << " bytes,";
@@ -333,22 +373,30 @@ void BotnetApp::resolveMyIp(){
     myip = temp1;
 }
 
-
-void BotnetApp::Global1(int vulnerabilidade, void *ip){
-Enter_Method_Silent();
-botnet->infectaApp(vulnerabilidade,ip);
+void BotnetApp::EnterMethodSilentBotnetApp(){
+    Enter_Method_Silent();
 }
+
+///////FUNÇÕES GLOBAIS/Da Classe/Estáticas///////////
+
+//Fixme mudar o nome da funcao
+void BotnetApp::Global1(int vulnerabilidade, void *ip){
+    Enter_Method_Silent();
+    botnet->infectaApp(vulnerabilidade,ip);
+}
+
+
 
 /////////////////////////////////////////////////////////////////////////////
 
 BotnetApp::~BotnetApp()
 {
-    cancelAndDelete(timeoutMsg);
+    delete botnet;
+    delete nodeStatus;
 }
 
 void BotnetApp::finish(){
     cancelAndDelete(timeoutMsg);
-//delete botnet;
 }
 
 bool BotnetApp::isNodeUp()
@@ -364,32 +412,7 @@ void BotnetApp::socketClosed(int connId, void *ptr)
 void BotnetApp::socketFailure(int connId, void *ptr, int code)
 {
     TCPAppBase::socketFailure(connId, ptr, code);
-    // reconnect after a delay
-    /*
-
-    if (timeoutMsg) {
-        simtime_t d = simTime() + (simtime_t)par("reconnectInterval");
-        rescheduleOrDeleteTimer(d, MSGKIND_CONNECT);
-    }
-    */
 }
-
-void BotnetApp::rescheduleOrDeleteTimer(simtime_t d, short int msgKind)
-{
-    //// Função legada.
-    //Mantida por causa da função handleOperationStage.
-    cancelEvent(timeoutMsg);
-
-    if (stopTime < SIMTIME_ZERO || d < stopTime) {
-        timeoutMsg->setKind(msgKind);
-        scheduleAt(d, timeoutMsg);
-    }
-    else {
-        delete timeoutMsg;
-        timeoutMsg = nullptr;
-    }
-}
-
 
 bool BotnetApp::handleOperationStage(LifecycleOperation *operation, int stage, IDoneCallback *doneCallback)
 {
@@ -401,21 +424,21 @@ bool BotnetApp::handleOperationStage(LifecycleOperation *operation, int stage, I
             simtime_t now = simTime();
             simtime_t start = std::max(startTime, now);
             if (timeoutMsg && ((stopTime < SIMTIME_ZERO) || (start < stopTime) || (start == stopTime && startTime == stopTime))) {
-                timeoutMsg->setKind(MSGKIND_CONNECT);
-                scheduleAt(start, timeoutMsg);
+                //timeoutMsg->setKind(MSGKIND_CONNECT);
+                //scheduleAt(start, timeoutMsg);
             }
         }
     }
     else if (dynamic_cast<NodeShutdownOperation *>(operation)) {
         if ((NodeShutdownOperation::Stage)stage == NodeShutdownOperation::STAGE_APPLICATION_LAYER) {
-            cancelEvent(timeoutMsg);
+            cancelAndDelete(timeoutMsg);
             if (socket.getState() == TCPSocket::CONNECTED || socket.getState() == TCPSocket::CONNECTING || socket.getState() == TCPSocket::PEER_CLOSED)
                 close();
         }
     }
     else if (dynamic_cast<NodeCrashOperation *>(operation)) {
         if ((NodeCrashOperation::Stage)stage == NodeCrashOperation::STAGE_CRASH)
-            cancelEvent(timeoutMsg);
+            cancelAndDelete(timeoutMsg);
     }
     else
         throw cRuntimeError("Unsupported lifecycle operation '%s'", operation->getClassName());

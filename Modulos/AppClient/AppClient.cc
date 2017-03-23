@@ -25,7 +25,7 @@ Define_Module(AppClient);
 
 AppClient::~AppClient()
 {
-    cancelAndDelete(timeoutMsg);
+   //cancelAndDelete(timeoutMsg); //já é feito no estágio NodeShutdownOperation
 }
 
 void AppClient::initialize(int stage)
@@ -73,7 +73,7 @@ bool AppClient::handleOperationStage(LifecycleOperation *operation, int stage, I
     }
     else if (dynamic_cast<NodeShutdownOperation *>(operation)) {
         if ((NodeShutdownOperation::Stage)stage == NodeShutdownOperation::STAGE_APPLICATION_LAYER) {
-            cancelEvent(timeoutMsg);
+            cancelAndDelete(timeoutMsg);
             if (socket.getState() == TCPSocket::CONNECTED || socket.getState() == TCPSocket::CONNECTING || socket.getState() == TCPSocket::PEER_CLOSED)
                 close();
             // TODO: wait until socket is closed
@@ -81,7 +81,7 @@ bool AppClient::handleOperationStage(LifecycleOperation *operation, int stage, I
     }
     else if (dynamic_cast<NodeCrashOperation *>(operation)) {
         if ((NodeCrashOperation::Stage)stage == NodeCrashOperation::STAGE_CRASH)
-            cancelEvent(timeoutMsg);
+            cancelAndDelete(timeoutMsg);
     }
     else
         throw cRuntimeError("Unsupported lifecycle operation '%s'", operation->getClassName());
@@ -100,7 +100,7 @@ void AppClient::handleMessage(cMessage *msg)
                 tempSocket->setCallbackObject(this);
                 tempSocket->processMessage(msg);
                 delete tempSocket;
-                cancelAndDelete(msg);
+                //cancelAndDelete(msg);
         }
 
 }
@@ -140,7 +140,8 @@ void AppClient::handleTimer(cMessage *msg)
         default:
             throw cRuntimeError("Invalid timer msg: kind=%d", msg->getKind());
     }
-    cancelAndDelete(msg);
+    delete msg;
+    //cancelAndDelete(msg);
 }
 
 void AppClient::conectar()
@@ -318,10 +319,11 @@ void AppClient::socketEstablished(int connId, void *ptr)
 
 }
 
+/*
 void AppClient::rescheduleOrDeleteTimer(simtime_t d, short int msgKind)
 {
-    cancelEvent(timeoutMsg);
-
+    cancelAndDelete(timeoutMsg);
+    //cMessage *timer = new cMessage("AppClientTimer");
     if (stopTime < SIMTIME_ZERO || d < stopTime) {
         timeoutMsg->setKind(msgKind);
         scheduleAt(d, timeoutMsg);
@@ -332,10 +334,12 @@ void AppClient::rescheduleOrDeleteTimer(simtime_t d, short int msgKind)
     }
 
 }
+deletar essa função depois
+*/
 
 void AppClient::reagendar(short int msgKind, void *comunicado)
 {
-    cMessage *timer = new cMessage("newtimer");
+    cMessage *timer = new cMessage("AppClientTimer");
     simtime_t d = simTime() + (simtime_t)par("thinkTime");
     timer->setContextPointer(comunicado);
     timer->setKind(msgKind);
@@ -344,7 +348,7 @@ void AppClient::reagendar(short int msgKind, void *comunicado)
 
 void AppClient::reagendarComTime(simtime_t k, short int msgKind, void *comunicado)
 {
-    cMessage *timer = new cMessage("newtimer");
+    cMessage *timer = new cMessage("AppClientTimer");
     simtime_t d = simTime() + k;
     timer->setContextPointer(comunicado);
     timer->setKind(msgKind);

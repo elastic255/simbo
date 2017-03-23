@@ -96,6 +96,9 @@ simple BotnetApp like ITCPApp
 {
     parameters:
         bool infectado = default(false);
+        bool botmaster = default(false);
+        string typeOfBot @enum("traditional","EPS") = default("traditional"); 
+        //EPS - External Program System
         ///////////////////////////////////////////////////////////////////////////
         string localAddress = default(""); // may be left empty ("")
         int localPort = default(-1); // port number to listen on
