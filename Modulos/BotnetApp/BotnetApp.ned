@@ -95,8 +95,8 @@ import inet.applications.contract.ITCPApp;
 simple BotnetApp like ITCPApp
 {
     parameters:
-        bool infectado = default(false);
-        bool botmaster = default(false);
+        bool infectado = default(false);		//Se a máquina deve iniciar infectada com o bot ou não.
+        bool botmaster = default(false);		//Se a máquina é o botmaster.
         string typeOfBot @enum("traditional","EPS") = default("traditional"); 
         //EPS - External Program System
         ///////////////////////////////////////////////////////////////////////////

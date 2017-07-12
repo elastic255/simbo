@@ -18,67 +18,118 @@
 
 namespace inet {
 
+/*
+A classe Botnet visa definir o comportamento e decisões tomadas pelo botnet.
+Seguindo o contrato de interface BotnetInterface, pode-se desenvolver diferentes variações da classe Botnet
+permitindo criar várias botnets diferentes numa mesma rede, com mínima alteração no BotnetApp (Módulo Simples).
+*/
+
 Botnet::Botnet(BotnetApp *oi) {
-    obj = oi;
-    maxNumDropOut = 30;
+
+    obj = oi;           //Cria uma referência para a classe botnet de seu BotnetApp (Módulo Simples)
+    maxNumDropOut = 30; //fixme Em desenvolvimento. Tempo máximo para um bot ser considerado desconectado da botnet pelos CC ou botmaster.
 }
 
 Botnet::~Botnet() {
-    topologia.apagarTudo();
+    topologia.apagarTudo(); //Apaga toda a estrutura armazenada em topologia.
 }
 
-////////CICLO BOTNET////////
+/*
+////////CICLO BOTNET//////////////
+Ciclo que toda botnet clássica (que segue uma ordem pré-estabelacida de ações) irá executar pelo contrato BotnetInterface e BotnetApp.
+*/
 
-////Prospecta
+////CICLO DE PROSPECÇÃO
 void Botnet::prospectaTopologia(){
+    //Inicia um ping em todas as máquinas da rede.
+
     BotnetPing* ping =(BotnetPing*) obj->getParentModule()->getSubmodule("pingApp",0);
     ping->startSendingPingRequests();
     obj->EnterMethodSilentBotnetApp();
 }
 
 bool Botnet::verificaProspectaTopologia(){
+    //Verifica se o ping já terminou.
+
     BotnetPing* ping =(BotnetPing*) obj->getParentModule()->getSubmodule("pingApp",0);
     return ping->pingFinalizado();
 }
 
 bool Botnet::terminoProspectaTopologia(){
     //Fixme criar uma condicional boleana de verdade.
+
+    //Adiciona as maquinas que responderam ao ping (alive) na estrutura de topologia (que representa o conhecimento
+    //do bot sobre a rede).
+
     BotnetPing* ping =(BotnetPing*) obj->getParentModule()->getSubmodule("pingApp",0);
     topologia.addIp(ping->carregaEnderecos());
     return true;
 }
 
-////Superfície
+////CICLO DE ANÁLISE DE SUPERFÍCIE
 void Botnet::prospectaSuperficies(){
-    //topologia.addVulnerabilidadeAll(100);
+    //Procura por vulnerabilidades na topologia conhecida.
+
+    //topologia.addVulnerabilidadeAll(100); fixme: vulnerabilidades não implementadas.
 }
 
-////Invade
+////CICLO DE INVASÃO
 void Botnet::invadeSistemas(){
+    //Abre a conexão e envia pacotes para invadir uma máquina na rede.
 
+    try{
     L3Address meuip = myip();
-    std::vector<CellTopo>::iterator it;
+    //std::vector<CellTopo>::iterator it2;
 
     if(topologia.topo.empty()){return;}
+
+
     int teste = topologia.topo.size();
     //for(it=topologia.topo.begin();it < topologia.topo.end(); it++){
+
+
     it=topologia.topo.begin();
     for(int i=0;i<teste-1;i++){
+        if(  (*it).ip.str().compare(meuip.str()) == 0 ){ it++; continue; }
         TCPSocket socket;
         socket.readDataTransferModePar(*obj);
         socket.setCallbackObject(obj);
         socket.setOutputGate(obj->gate("tcpOut"));
-        //fixme mover para o inicio da iteração. e substituir tudo por setSocket.
-        if(  (*it).ip.str().compare(meuip.str()) == 0 ){ it++; continue; }
         //printf("%s\n",(*it).ip.str().c_str());
         socket.connect((*it).ip,10022);
         (*it).socket = socket;
         (*it).connId = socket.getConnectionId();
         it++;
     }
+
+//fixme Descobrir porquê o codigo acima funciona e o debaixo não. Descobrir se {(*it).socket = socket;} é uma operação válida.
+    /*
+    char out[100];
+    int tamanho = topologia.topo.size();
+    for(it=topologia.topo.begin(); it != topologia.topo.end(); it++){
+        if(  (*it).ip.str().compare(meuip.str()) == 0 ){ continue; }
+        printf("%s\n",(*it).ip.str().c_str());
+        sprintf(out,"%s\n",(*it).ip.str().c_str());
+        TCPSocket socket;
+        socket.readDataTransferModePar(*obj);
+        socket.setCallbackObject(obj);
+        socket.setOutputGate(obj->gate("tcpOut"));
+        socket.connect((*it).ip,10022);
+
+        (*it).socket = socket;
+        (*it).connId = socket.getConnectionId();
+
+    }
+    */
+
+
+    }catch (const std::exception& ba){throw cRuntimeError("Botnet::invadeSistemas,Erro:%s",ba.what());}
+
 }
 
 bool Botnet::aliveFeedback(int connId){
+    //Envia um pacote para o botmaster ou centro de comando, avisando que esse computador está infectado e pertence a botnet.
+
     try{
         CellTopo oi; //tomar cuidado aqui.
         if(subBotnet.empty()){
@@ -119,24 +170,35 @@ bool Botnet::aliveFeedback(int connId){
 bool Botnet::recebeComando(void *){return false;}
 //////////FIM CICLO BOTNET///////////////
 
-///////Métodos Unitários////////
-
+/*
+//////////MÉTODOS UNITÁRIOS//////////////
+Métodos que podem ser chamados pelo usuário em tempo de execução (prompt ou shell) que se referem a
+um único bot.
+*/
 void Botnet::invadeUmSistema(L3Address ip){
+    //Manda esse bot invadir um pc.
+
     int id;
         TCPSocket socket = setSocket(ip);
         socket.connect(ip,10022);
         id = topologia.addIp(ip);
-        CellTopo* it = topologia.getTopoById(id);
-        (*it).socket = socket;
-        (*it).connId = socket.getConnectionId();
+        CellTopo* temp = topologia.getTopoById(id);
+        (*temp).socket = socket;
+        (*temp).connId = socket.getConnectionId();
 }
 
 void Botnet::redefinirCC(L3Address ip){
+    //manda esse bot trocar de centro de comando ou botmaster.
+
     obj->masterSocket = setSocket(ip);
 }
+//////////FIM MÉTODOS UNITÁRIOS/////////////
 
-//Sinais externos
+
+//////////SINAIS EXTERNOS//////////////////
 bool Botnet::infectaApp(int vulnerabilidade, void *ip){
+    //Ao receber um pacote de invasão, determina se esse computador foi invadido com sucesso ou não.
+
     if(obj->estado == BotnetApp::OP_SAUDAVEL){
         obj->getDisplayString().setTagArg("i",0,"block/dispatch");
         obj->getDisplayString().setTagArg("i",1,"red");
@@ -148,10 +210,13 @@ bool Botnet::infectaApp(int vulnerabilidade, void *ip){
         return false;
     }
 }
+//////////FIM SINAIS EXTERNOS///////////////
 
-//Auxiliares
 
+//////////AUXILIARES////////////////////////
 L3Address Botnet::myip(){
+    //Retorna o IP do computador ou bot.
+
     InterfaceTable* interfacetab =(InterfaceTable*) obj->getParentModule()->getSubmodule("interfaceTable");
     InterfaceEntry *interface =  interfacetab->getInterface(1);
     L3Address temp1 = L3Address(interface->ipv4Data()->getIPAddress());
@@ -159,6 +224,8 @@ L3Address Botnet::myip(){
 }
 
 TCPSocket Botnet::setSocket(L3Address ip){
+    //Auxilia na configuração do socket para iniciar a conexão.
+
     TCPSocket socket;
     socket.readDataTransferModePar(*obj);
     socket.setCallbackObject(obj);
@@ -166,5 +233,6 @@ TCPSocket Botnet::setSocket(L3Address ip){
     socket.connect(ip,10022);
     return socket;
 }
+//////////FIM AUXILIARES////////////////////////
 
 } /* namespace inet */

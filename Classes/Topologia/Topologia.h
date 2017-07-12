@@ -12,21 +12,22 @@
 
 namespace inet {
 
+//Registro que armazena toda a informação sabida do bot sobre aquele ip. 
 typedef struct CellTopo{
     int id;
-    L3Address ip;
-    int connId;
-    TCPSocket socket;
-    std::vector<int> vulnerabilidade;
-    int NumDropOut = 0;
+    L3Address ip;						//Endereço do nó (IP)
+    int connId;							//Identificador de Conexão entre o bot e esse computador.
+    TCPSocket socket;					//Socket aberto entre o bot e esse computador.
+    std::vector<int> vulnerabilidade;	//Vulnerabilidades conhecidas deste computador.
+    int NumDropOut = 0;					//Marca quanto tempo não se tem notícia do bot nesse computador (só usado por CC ou botmaster). 
 }CellTopo;
 
 class Topologia {
 public:
 
-    int unitId = 1;
-    std::vector<CellTopo> topo;
-    std::vector<CellTopo>::iterator it;
+    long unitId = 1;					//Indica quantos registros a estrutura já adicionou em seu tempo de vida. (não quantos ela possui no momento).
+    std::vector<CellTopo> topo;			//Vetor de Registro referênte a todos os nós da rede conhecidos.
+    std::vector<CellTopo>::iterator it;	//Iterador do vetor.
 
     virtual int addIp(L3Address);
     virtual int addIp(std::vector<L3Address>);

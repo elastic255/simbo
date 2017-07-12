@@ -50,11 +50,13 @@ class INET_API BotnetApp : public TCPAppBase, public ILifecycle
 {
 
   public:
+    //Identificador (TAG) para os timers utilizados pela classe. É resolvido em BotnetApp::handleTimer.
     enum TiposMsg: int {MSG_INICIA,
                         MSGKIND_CONNECT,
-                        MSGKIND_SEND,
                         MSG_FINALIZA,
 
+                        MSG_CLOSE,
+                        MSG_SENDINVADE,
                         MSG_TOPOLOGIA,
                         MSG_VERIFICA_TOPOLOGIA,
                         MSG_TERMINO_TOPOLOGIA,
@@ -67,25 +69,27 @@ class INET_API BotnetApp : public TCPAppBase, public ILifecycle
 
                         MSG_SEND_ALIVE_FEEDBACK};
 
-    enum Operanti: int {OP_SAUDAVEL,
-                        OP_INFECTADO,
-                        OP_MASTER,
-                        OP_COMANDER};
+    //Identificador (TAG) do estado do computador.
+    enum Operanti: int {OP_SAUDAVEL,    //Computador não está infectado. Está saudável.
+                        OP_INFECTADO,   //Computador está infectada e faz parte da botnet.
+                        OP_MASTER,      //Computador é o Botmaster da botnet.
+                        OP_COMANDER};   //Computador é um Centro de Comando da botnet.
 
-    enum TipoExtMsg: int  {TEM_INVASION,
-                           TEM_VIVO,
-                           TEM_COMANDO,
-                           TEM_REPASSACOMANDO};
+    //Identificador do tipo de mensagem a ser enviada a outro computador.
+    enum TipoExtMsg: int  {TEM_INVASION,    //A mensagem contém um ataque.
+                           TEM_VIVO,        //A mensagem avisa que o computador pertence a botnet. Está vivo para a botnet.
+                           TEM_COMANDO,     //A mensagem trás um comando do botmaster para esse bot.
+                           TEM_REPASSACOMANDO}; //A mensagem trás um comando do botmaster para outro bot. E deve ser repassada.
 
 
   protected:
-    cMessage *timeoutMsg = nullptr;
-    NodeStatus *nodeStatus = nullptr;
-    simtime_t startTime;
-    simtime_t stopTime;
+    cMessage *timeoutMsg = nullptr;		
+    NodeStatus *nodeStatus = nullptr;	//Usado pelo módulo simples na simulação para controlar simulação
+    simtime_t startTime;	//Tempo para iniciar o módulo. (não usado, legado).
+    simtime_t stopTime;		//Tempo para finaliza o módulo. (não usado, legado).
 
 
-    virtual void sendRequest(void *);
+
 
     virtual int numInitStages() const override { return NUM_INIT_STAGES; }
     virtual void initialize(int stage) override;
@@ -102,16 +106,17 @@ class INET_API BotnetApp : public TCPAppBase, public ILifecycle
   protected:
     virtual void sendPacket(cPacket *,int);
     TCPSocket *tempSocket;  //Porta para resolver pacotes recebidos.
+    virtual void sendInvade(void *);
 
 
 
   public:
     BotnetInterface *botnet; //Motor de comportamento da botnet.
 
-    Operanti estado = OP_SAUDAVEL;
+    Operanti estado = OP_SAUDAVEL;	//Estado do computador.
     TCPSocket serverSocket; //Porta para receber pacotes (server).
     TCPSocket masterSocket; //Porta para se comunicar com o botmaster ou CC.
-    L3Address myip; //IP do nó
+    L3Address myip; 		//IP do nó
 
     virtual void inicia();
     void setEstado(Operanti a){estado = a;}
@@ -123,6 +128,7 @@ class INET_API BotnetApp : public TCPAppBase, public ILifecycle
     virtual void mudaIconeBotnet();
     virtual void resolveMyIp();
     virtual void EnterMethodSilentBotnetApp();
+    virtual bool auxCloseConnection(int connId);
 
     virtual void sendAliveFeedBack();
 

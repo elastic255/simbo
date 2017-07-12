@@ -11,15 +11,18 @@
 namespace inet {
 
 
-Define_Module(BotnetApp);
+Define_Module(BotnetApp);   //Faz o link da classe com o módulo simples.
 
 
 void BotnetApp::initialize(int stage)
 {
+    //Método herdado do módulo simples
+    //É utilizado para iniciar os módulos simples antes de começar a simulação. E contém as configurações iniciais.
     try{
-        if(par("localPort").longValue() == -1){ par("localPort").setLongValue(10022);}
-        if(par("infectado").boolValue()){estado = OP_INFECTADO;}else{estado = OP_SAUDAVEL;}
-        if(par("botmaster").boolValue()){estado = OP_MASTER;}
+        //Define os parametros iniciais do módulo, geralmente definidos no arquivo .ini
+        if(par("localPort").longValue() == -1){ par("localPort").setLongValue(10022);}          //Se não houver porta definida para o bot define a porta 10022.
+        if(par("infectado").boolValue()){estado = OP_INFECTADO;}else{estado = OP_SAUDAVEL;}     //Define se este bot está infectado.
+        if(par("botmaster").boolValue()){estado = OP_MASTER;}                                   //Define se este bot é o botmaster.
         TCPAppBase::initialize(stage);
 
 
@@ -33,9 +36,11 @@ void BotnetApp::initialize(int stage)
         }
         else if (stage == INITSTAGE_APPLICATION_LAYER) {
 
-            ///////////////////////////////////////////// parametros
-            const char *localAddress = par("localAddress");
-            int localPort = par("localPort");
+            ////////////////PARÂMETROS/////////////////////////////
+            //Define os parametros iniciais do módulo, geralmente definidos no arquivo .ini
+
+            const char *localAddress = par("localAddress"); //Define o endereço do bot (geralmente deixado no padrão)
+            int localPort = par("localPort");               //Define a porta que a rede botnet vai usar.
             serverSocket.readDataTransferModePar(*this);
             serverSocket.bind(*localAddress ? L3AddressResolver().resolve(localAddress) : L3Address(), localPort);
             serverSocket.setCallbackObject(this);
@@ -61,13 +66,16 @@ void BotnetApp::initialize(int stage)
 
 void BotnetApp::handleTimer(cMessage *msg)
 {
-    //Lista de mensagens internas ou timers internos.
- //TODO marca
+    //Definições de resoluções para as mensagens internas ou timers internos.
+    //Define e executa o ciclo clássico de operação do bot.
+
+ //TODO aqui
     int timeAF;
     try{
     switch (msg->getKind()){
 
         case MSG_INICIA:
+            //Pré-ciclo
             try{
                 resolveMyIp();
                 botnet->inicia();
@@ -76,6 +84,7 @@ void BotnetApp::handleTimer(cMessage *msg)
             }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_INICIA,Erro:%s",ba.what());}
 
         case MSG_TOPOLOGIA:
+            //Inicia prospecção da topologia.
             try{
                 botnet->prospectaTopologia();
                 remarca(MSG_VERIFICA_TOPOLOGIA, 3);
@@ -83,12 +92,14 @@ void BotnetApp::handleTimer(cMessage *msg)
             }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_TOPOLOGIA,Erro:%s",ba.what());}
 
         case MSG_VERIFICA_TOPOLOGIA:
+            //Verifica se a prospecção da topologia já terminou.
             try{
                 if (botnet->verificaProspectaTopologia()){remarca(MSG_TERMINO_TOPOLOGIA);}else{remarca(MSG_VERIFICA_TOPOLOGIA, 3);}
                 break;
             }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_VERIFICA_TOPOLOGIA,Erro:%s",ba.what());}
 
         case MSG_TERMINO_TOPOLOGIA:
+            //Pós-prospecção. Fim da prospecção da topologia.
             try{
                  botnet->terminoProspectaTopologia();
                  remarca(MSG_SUPERFICIE);
@@ -96,6 +107,7 @@ void BotnetApp::handleTimer(cMessage *msg)
             }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_TERMINO_TOPOLOGIA,Erro:%s",ba.what());}
 
         case MSG_SUPERFICIE:
+            //Inicia varredura da superfície de ataque.
             try{
                 botnet->prospectaSuperficies();
                 remarca(MSG_VERIFICA_SUPERFICIE, 3);
@@ -103,12 +115,14 @@ void BotnetApp::handleTimer(cMessage *msg)
             }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_SUPERFICIE,Erro:%s",ba.what());}
 
         case MSG_VERIFICA_SUPERFICIE:
+            //Verifica se a varredura da superfície já terminou.
             try{
                 if (botnet->verificaProspectaSuperficie()){remarca(MSG_TERMINO_SUPERFICIE);}else{remarca(MSG_VERIFICA_SUPERFICIE, 3);}
                 break;
             }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_VERIFICA_SUPERFICIE,Erro:%s",ba.what());}
 
         case MSG_TERMINO_SUPERFICIE:
+            //Pós-varredura. Fim da varredura da superfície.
             try{
                 botnet->terminoProspectaSuperficie();
                 remarca(MSG_INVASAO);
@@ -116,19 +130,22 @@ void BotnetApp::handleTimer(cMessage *msg)
             }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_TERMINO_SUPERFICIE,Erro:%s",ba.what());}
 
         case MSG_INVASAO:
+            //Inicia ataque.
             try{
                 botnet->invadeSistemas();
                 remarca(MSG_VERIFICA_INVASAO);
                 break;
-            }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_INVASAO,Erro:%s",ba.what());}
+            }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_INVASAO,\n Erro:%s",ba.what());}
 
         case MSG_VERIFICA_INVASAO:
+            //Verifica se o ataque já terminou.
             try{
                 if (botnet->verificaInvadeSistemas()){remarca(MSG_TERMINO_INVASAO);}else{remarca(MSG_VERIFICA_INVASAO, 3);}
                 break;
             }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_VERIFICA_INVASAO,Erro:%s",ba.what());}
 
         case MSG_TERMINO_INVASAO:
+            //Pós-ataque. Fim do ataque.
             try{
                 botnet->terminoInvadeSistemas();
                 remarca(MSG_FINALIZA);
@@ -136,12 +153,14 @@ void BotnetApp::handleTimer(cMessage *msg)
             }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_TERMINO_INVASAO,Erro:%s",ba.what());}
 
         case MSG_FINALIZA:
+            //Pós-Ciclo.
             try{
                 botnet->finaliza();
                 break;
             }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_FINALIZA,Erro:%s",ba.what());}
 
         case MSG_SEND_ALIVE_FEEDBACK:
+            //Envia uma notificação ao botmaster para sinalizar que está vivo e conectado a botnet.
             try{
                 sendAliveFeedBack();
                 timeAF = botnet->isSetTimerAliveFeedback();
@@ -149,19 +168,30 @@ void BotnetApp::handleTimer(cMessage *msg)
                 break;
             }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_SEND_ALIVE_FEEDBACK,Erro:%s",ba.what());}
 
-        case MSGKIND_SEND:
+        case MSG_SENDINVADE:
+            //Após a conexão ser aberta, envia um pacote para realizar a  invasão.
             try{
-                sendRequest(msg->getContextPointer());
+                sendInvade(msg->getContextPointer());
                 free(msg->getContextPointer());
                 break;
-            }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSGKIND_SEND,Erro:%s",ba.what());}
+            }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_SENDINVADE,Erro:%s",ba.what());}
+
+        case MSG_CLOSE:
+            //Fecha conexão com o outro computador.
+            try{
+                if(msg->getContextPointer() == nullptr){return;}
+                int connId = *((int*)msg->getContextPointer());
+                auxCloseConnection(connId);
+                free(msg->getContextPointer());
+                break;
+            }catch (const std::exception& ba){throw cRuntimeError("BotnetApp::handleTimer::MSG_CLOSE,Erro:%s",ba.what());}
 
         default:
             throw cRuntimeError("Mensagem Interna Invalida do tipo(kindId)=%d", msg->getKind());
 
         }
     }catch (std::exception& ba){
-                throw cRuntimeError("######BotnetApp::handleTimer::switch, Erro:%s", ba.what());
+                throw cRuntimeError("######BotnetApp::handleTimer::switch,\n Erro:%s", ba.what());
             }
 
 
@@ -171,11 +201,14 @@ void BotnetApp::handleTimer(cMessage *msg)
 
 void BotnetApp::handleMessage(cMessage *msg)
 {
+    //Método padrão do módulo simples, recebe todas as mensagens e timers.
+    //Resolve o protocolo TCP.
+
     if (msg->isSelfMessage())
         handleTimer(msg);
     else{
         try{
-
+            //fixme: não me lembro do porquê usar vários sockets ao invés de apenas um.
             tempSocket = new TCPSocket(msg);
             tempSocket->setCallbackObject(this);
             tempSocket->processMessage(msg);
@@ -188,6 +221,7 @@ void BotnetApp::handleMessage(cMessage *msg)
 
 void BotnetApp::socketEstablished(int connId, void *ptr)
 {
+    //Resolve o protocolo de conexão estabelecida do TCP.
     //Se a conexão não foi iniciada por este nó, descarta.
     //Caso seja resolve de acordo com o estado da máquina.
 
@@ -199,9 +233,13 @@ void BotnetApp::socketEstablished(int connId, void *ptr)
         case OP_MASTER:
         case OP_INFECTADO:
              if( botnet->topologia.hasConnId(connId) ){
+                 //fixme: utilizar o sendInvade direto aqui invés de utilizar msg.
                  int *temp1 = (int*)malloc(sizeof(int));
+                 int *temp2 = (int*)malloc(sizeof(int));
                  *temp1 = connId;
-                 remarca(MSGKIND_SEND,0,temp1);
+                 *temp2 = connId;
+                 remarca(MSG_SENDINVADE,0,temp1);
+                 remarca(MSG_CLOSE,10,temp2);
              }
             break;
         default:
@@ -212,7 +250,9 @@ void BotnetApp::socketEstablished(int connId, void *ptr)
 
 void BotnetApp::socketDataArrived(int connId, void *ptr, cPacket *msg, bool urgent)
 {
-    TCPSocket* tmp;
+    //Resolve o protocolo TCP quando dados chegam.
+    //Verifica o tipo de dado que chegou e resolve.
+
     BotnetAppMsg *appmsg = dynamic_cast<BotnetAppMsg *>(msg);
         if(appmsg){
 
@@ -225,14 +265,10 @@ void BotnetApp::socketDataArrived(int connId, void *ptr, cPacket *msg, bool urge
             }
 
             if(appmsg->getAcao() == TEM_VIVO){
+                //precisa da conexão aberta para continuar recebendo keepalives
                 botnet->aliveFeedback(connId);
             }else{
-                //precisa da conexão aberta para continuar mandando keepalives
-                tmp = botnet->topologia.getSocketPtr(connId);
-                botnet->topologia.apagarConnId(connId);
-                if(tmp){
-                    tmp->close();
-                }
+                auxCloseConnection(connId);
             }
 
             /*
@@ -247,8 +283,10 @@ void BotnetApp::socketDataArrived(int connId, void *ptr, cPacket *msg, bool urge
 }
 
 
-void BotnetApp::sendRequest(void *p)
+void BotnetApp::sendInvade(void *p)
 {
+    //Método que abre conexão e envia pacotes TCP para a invasão.
+
     if(p == nullptr){return;}
     int connId = *((int*)p);
 
@@ -267,7 +305,7 @@ void BotnetApp::sendRequest(void *p)
         msg->setByteLength(200);
         msg->setContextPointer(&myip);
     }catch (std::bad_alloc& ba){
-        throw cRuntimeError("Aviso!!! ######Erro bad_alloc em 2, Erro:%s", ba.what());
+        throw cRuntimeError("Aviso!!! ######Erro sendRequest, Erro:%s", ba.what());
     }
 
     EV_INFO << "sending request with " << requestLength << " bytes, expected reply length " << replyLength << " bytes,";
@@ -276,6 +314,10 @@ void BotnetApp::sendRequest(void *p)
 }
 
 void BotnetApp::sendPacket(cPacket *msg, int connId){
+    //Usado em sendInvade().
+    //Método que envia um pacote se a conexão com aquele computador estiver aberta.
+
+
     int numBytes = msg->getByteLength();
     emit(sentPkSignal, msg);
 
@@ -289,10 +331,12 @@ void BotnetApp::sendPacket(cPacket *msg, int connId){
 }
 
 
-///////////MINHAS FUNÇÕES////////////////////////////////////////////////////
+///////////MÉTODOS AUXILIARES////////////////////////////////////////////////////
 // TODO: aqui
 
 void BotnetApp::sendAliveFeedBack(){
+    //Envia um pacote TCP para o botmaster ou CC avisando que este nó entrou ou continua conectado a botnet.
+
     BotnetAppMsg *msg;
     int numBytes;
     try{
@@ -302,11 +346,11 @@ void BotnetApp::sendAliveFeedBack(){
         msg->setVulnerabilidade(2);
         msg->setByteLength(numBytes);
     }catch (std::bad_alloc& ba){
-        throw cRuntimeError("######Erro bad_alloc em 3, Erro:%s", ba.what());
+        throw cRuntimeError("######Erro sendAliveFeedBack, Erro:%s", ba.what());
     }
     emit(sentPkSignal, msg);
 
-    if( masterSocket.getRemoteAddress().isUnspecified() ){throw cRuntimeError("Conexao nao definida em sendAliveFeedBack");}
+    if( masterSocket.getRemoteAddress().isUnspecified() ){throw cRuntimeError("Conexao com botmaster nao definida em sendAliveFeedBack");}
     masterSocket.send(msg);
 
     packetsSent++;
@@ -314,6 +358,7 @@ void BotnetApp::sendAliveFeedBack(){
 }
 
 void BotnetApp::remarca(TiposMsg f){
+    //Define um novo timer.
         cMessage *timer = new cMessage("remarca1");
         simtime_t d = simTime() + (simtime_t)par("thinkTime");
         timer->setKind(f);
@@ -321,6 +366,7 @@ void BotnetApp::remarca(TiposMsg f){
 }
 
 void BotnetApp::remarca(TiposMsg f, simtime_t g){
+    //Define um novo timer.
         cMessage *timer = new cMessage("remarca2");
         simtime_t d = simTime() + (simtime_t)par("thinkTime");
         timer->setKind(f);
@@ -328,6 +374,7 @@ void BotnetApp::remarca(TiposMsg f, simtime_t g){
 }
 
 void BotnetApp::remarca(TiposMsg f, simtime_t g, void *p){
+    //Define um novo timer.
         cMessage *timer = new cMessage("remarca3");
         simtime_t d = simTime() + (simtime_t)par("thinkTime");
         timer->setContextPointer(p);
@@ -336,6 +383,8 @@ void BotnetApp::remarca(TiposMsg f, simtime_t g, void *p){
 }
 
 void BotnetApp::inicia(){
+    //Primeiro método a ser chamado no ciclo clássico de operação do bot.
+
     if(isInfected()){
         mudaIconeBotnet();
         if(estado != OP_MASTER){
@@ -352,6 +401,8 @@ void BotnetApp::inicia(){
 }
 
 bool BotnetApp::isInfected(){
+    //Método que retorna se o computador está infectado ou não.
+
     switch(estado){
         case OP_SAUDAVEL: return false;
         case OP_INFECTADO: return true;
@@ -362,33 +413,57 @@ bool BotnetApp::isInfected(){
 }
 
 void BotnetApp::mudaIconeBotnet(){
+    //Muda o ícone do computador na tela gráfica para o ícone de computador infectado.
+
     this->getDisplayString().setTagArg("i",1,"red");
     this->getParentModule()->getDisplayString().setTagArg("i",1,"red");
 }
 
 void BotnetApp::resolveMyIp(){
+    //Retorna o ip do computador para esta classe.
+
     InterfaceTable* interfacetab =(InterfaceTable*) getParentModule()->getSubmodule("interfaceTable");
     InterfaceEntry *interface =  interfacetab->getInterface(1);
     L3Address temp1 = L3Address(interface->ipv4Data()->getIPAddress());
     myip = temp1;
 }
 
+bool BotnetApp::auxCloseConnection(int connId){
+    //Fecha a conexão com o outro computador.
+    TCPSocket* tmp = botnet->topologia.getSocketPtr(connId);
+    botnet->topologia.apagarConnId(connId);
+    if(tmp){
+        if(tmp->getState() == TCPSocket::CONNECTING || tmp->getState() == TCPSocket::CONNECTED || tmp->getState() == TCPSocket::LISTENING ){
+            tmp->close();
+            return true;
+        }
+    }
+    return false;
+}
+///////////FIM MÉTODOS AUXILIARES/////////////////////////////////////////////
+
+
+///////////MÉTODOS ESTÁTICOS////////////////////////////////////////////////////
+//Métodos para serem utilizados por outras funções que precisam executar alguma ação em nome deste módulo
+//ou recuperar alguma informação deste módulo.
+
 void BotnetApp::EnterMethodSilentBotnetApp(){
+    //Indica para a interface gráfica que este módulo estará fazendo o processamento.
+    //
     Enter_Method_Silent();
 }
 
-///////FUNÇÕES GLOBAIS/Da Classe/Estáticas///////////
+///////FUNÇÕES GLOBAIS/ Classe Estáticas///////////
 
 //Fixme mudar o nome da funcao
 void BotnetApp::Global1(int vulnerabilidade, void *ip){
     Enter_Method_Silent();
     botnet->infectaApp(vulnerabilidade,ip);
 }
+///////////FIM MÉTODOS ESTÁTICOS/////////////////////////////////////////////////
 
 
-
-/////////////////////////////////////////////////////////////////////////////
-
+/////////////////////////////MÉTODOS DE BAIXA RELEVÂNCIA///////////////////////
 BotnetApp::~BotnetApp()
 {
     delete botnet;
@@ -406,18 +481,20 @@ bool BotnetApp::isNodeUp()
 
 void BotnetApp::socketClosed(int connId, void *ptr)
 {
+    //Resolução do protocolo TCP quando a conexão é fechada.
     TCPAppBase::socketClosed(connId, ptr);
 }
 
 void BotnetApp::socketFailure(int connId, void *ptr, int code)
 {
+    //Resolução do protocolo TCP quando a conexão falha.
     TCPAppBase::socketFailure(connId, ptr, code);
 }
 
 bool BotnetApp::handleOperationStage(LifecycleOperation *operation, int stage, IDoneCallback *doneCallback)
 {
-    //Função de startup e shutdown do nó. Não utilizado porquê os exemplos são de rede estática.
-    // Função legada.
+    //Método de startup e shutdown do nó. Não utilizado porquê os exemplos são de rede estática.
+    // Método legado.
     Enter_Method_Silent();
     if (dynamic_cast<NodeStartOperation *>(operation)) {
         if ((NodeStartOperation::Stage)stage == NodeStartOperation::STAGE_APPLICATION_LAYER) {
@@ -444,5 +521,7 @@ bool BotnetApp::handleOperationStage(LifecycleOperation *operation, int stage, I
         throw cRuntimeError("Unsupported lifecycle operation '%s'", operation->getClassName());
     return true;
 }
+
+/////////////////////////////FIM MÉTODOS DE BAIXA RELEVÂNCIA/////////////////
 
 } // namespace inet

@@ -9,6 +9,8 @@
 
 namespace inet {
 
+//Estrutu que representa o conhecimento do bot sobre a rede. E as configurações do próprio bot.
+//Armazena os nós ativos e as conexões abertas. 
 
 Topologia::Topologia() {
 
@@ -16,6 +18,8 @@ Topologia::Topologia() {
 }
 
 int Topologia::addIp(L3Address address){
+	//Adiciona o ip a estrutura.
+	//Representa que o bot agora sabe que o computador com esse ip está vivo.
 
     if(!hasAddress(address)){
         CellTopo temp;
@@ -29,6 +33,8 @@ int Topologia::addIp(L3Address address){
 }
 
 int Topologia::addIp(std::vector<L3Address> vec){
+	//Adiciona um vetor de ips a estrutura.
+	
     if(vec.empty()){throw cRuntimeError("Topologia::addIp, vetor chegou vazio.");}
     int lastid;
     std::vector<L3Address>::iterator itl3;
@@ -41,6 +47,9 @@ int Topologia::addIp(std::vector<L3Address> vec){
 }
 
 void Topologia::addVulnerabilidadeAll(int vulnerabilidade){
+	//Adiciona vulnerabilidade a este computador.
+	//Define que vulnerabilidades este computador terá.
+	
     if(topo.empty()){return;}
     for(it=topo.begin(); it< topo.end(); it++){
         (*it).vulnerabilidade.push_back(vulnerabilidade);
@@ -48,6 +57,9 @@ void Topologia::addVulnerabilidadeAll(int vulnerabilidade){
 }
 
 int Topologia::setId(){
+	//Cria e retorna um id para cada nó encontrado na topologia.
+	//Esse será um identificador de fácil acesso para se referir a um computador dentro da estrutura topologia.
+	
     //return ++unitId;
     int i = unitId;
     unitId++;
@@ -55,6 +67,8 @@ int Topologia::setId(){
 }
 
 L3Address Topologia::getAddress(int connId){
+	//Retorna o endereço do nó (se conhecido) baseado no identificador da conexão.
+	
     L3Address ret;
     if(topo.empty()){return ret;}
     for(it=topo.begin();it <= topo.end(); it++){
@@ -64,6 +78,8 @@ L3Address Topologia::getAddress(int connId){
 }
 
 bool Topologia::apagarConnId(int connId){
+	//Apaga registro referente ao nó (se conhecido) baseado no identificador da conexão.
+	
     if(topo.empty()){return false;}
     for(it=topo.begin();it <= topo.end(); it++){
         if(connId == (*it).connId){
@@ -76,6 +92,8 @@ bool Topologia::apagarConnId(int connId){
 }
 
 bool Topologia::apagarId(int id){
+	//Apaga registro referente ao nó (se conhecido) baseado no identificador interno.
+	
     if(topo.empty()){return false;}
     for(it=topo.begin();it <= topo.end(); it++){
         if(id == (*it).id){
@@ -88,6 +106,8 @@ bool Topologia::apagarId(int id){
 }
 
 bool Topologia::apagarAddress(L3Address address){
+	//Apaga registro referente ao nó (se conhecido) baseado no endereço.
+	
     if(topo.empty()){return false;}
     for(it=topo.begin();it <= topo.end(); it++){
         if(address == (*it).ip){
@@ -101,6 +121,8 @@ bool Topologia::apagarAddress(L3Address address){
 
 
 L3Address Topologia::getAddressId(int id){
+	//Retorna o endereço do nó (se conhecido) baseado no identificador interno.
+	
     L3Address ret;
     if(topo.empty()){return ret;}
     for(it=topo.begin();it <= topo.end(); it++){
@@ -110,6 +132,8 @@ L3Address Topologia::getAddressId(int id){
 }
 
 TCPSocket *Topologia::getSocketPtr(int connId){
+	//Retorna o socket da conexão (se conhecido) baseado no identificador de conexão.
+	
     if(topo.empty()){return nullptr;}
     for(it=topo.begin();it <= topo.end(); it++){
         if(connId == (*it).connId){return &(*it).socket;}
@@ -118,6 +142,9 @@ TCPSocket *Topologia::getSocketPtr(int connId){
 }
 
 bool Topologia::getEstruturaConnId(int connId, CellTopo* oi){
+	//Retorna todo o registro referênte ao identificador de conexão, se conhecido, por passagem de parâmetro.
+	//Retorna verdadeiro se o identificador de conexão for conhecido e falso caso contrátrio.
+	
     if(topo.empty()){return false;}
     for(it=topo.begin();it <= topo.end(); it++){
         if(connId == (*it).connId){
@@ -130,6 +157,9 @@ bool Topologia::getEstruturaConnId(int connId, CellTopo* oi){
 }
 
 bool Topologia::getEstruturaId(int id, CellTopo* oi){
+	//Retorna todo o registro referênte ao identificador interno, se conhecido, por passagem de parâmetro.
+	//Retorna verdadeiro se o identificador interno for conhecido e falso caso contrátrio.
+	
     if(topo.empty()){return false;}
     for(it=topo.begin();it <= topo.end(); it++){
         if(id == (*it).id){
@@ -141,6 +171,8 @@ bool Topologia::getEstruturaId(int id, CellTopo* oi){
 }
 
 CellTopo* Topologia::getTopoById(int id){
+	//Retorna todo o registro referênte ao identificador interno, se conhecido, por passagem de parâmetro.
+	
     if(topo.empty()){return nullptr;}
     for(it=topo.begin();it <= topo.end(); it++){
         if(id == (*it).id){return &(*it);}
@@ -149,6 +181,8 @@ CellTopo* Topologia::getTopoById(int id){
 }
 
 bool Topologia::hasAddress(L3Address address){
+	//Verifica se o endereço é conhecido pela estrutura.
+	
     if(topo.empty()){return false;}
     for(it=topo.begin();it <= topo.end(); it++){
         if(address == (*it).ip){return true;}
@@ -157,6 +191,8 @@ return false;
 }
 
 bool Topologia::hasConnId(int connId){
+	//Verifica se o identificador de conexão é conhecido pela estrutura.
+	
     if(topo.empty()){return false;}
     for(it=topo.begin();it <= topo.end(); it++){
         if(connId == (*it).connId){return true;}
@@ -165,6 +201,8 @@ return false;
 }
 
 bool Topologia::hasVulnerabilidadeConnId(int vulnerabilidade, int connId){
+	//Verifica se é sabido que o computador na conexão referênte ao identificador de conexão tem esta vulnerabilidade.
+	
     if(topo.empty()){return false;}
     std::vector<int>::iterator vit;
 
@@ -180,6 +218,9 @@ return false;
 }
 
 void Topologia::apagarTudo(){
+	//Apaga toda a estrutura topologia.
+	//Utilizado na destruição do objeto topologia para limpar a memória.
+	
     for(it=topo.begin();it <= topo.end(); it++){
         (*it).vulnerabilidade.clear();
     }

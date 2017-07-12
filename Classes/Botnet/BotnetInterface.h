@@ -42,9 +42,9 @@ public:
 
    //BotnetApp *obj;
     Topologia topologia;
-    std::vector<CellTopo> subBotnet;
-    std::vector<CellTopo>::iterator it;
-    int maxNumDropOut;
+    std::vector<CellTopo> subBotnet;        //fixme: em desenvolvimento.
+    std::vector<CellTopo>::iterator it;     //fixme: em desenvolvimento.
+    int maxNumDropOut;     //fixme:Em deenvolvimento. Tempo máximo para um bot ser considerado desconectado da botnet pelos CC ou botmaster.
 
    //Ciclo tradicional
    virtual void inicia(){}
@@ -63,7 +63,7 @@ public:
    virtual bool terminoInvadeSistemas(){return false;}
    virtual bool verificaInvadeSistemas(){return true;}
 
-   virtual int isSetTimerAliveFeedback(){return 3;}
+   virtual int isSetTimerAliveFeedback(){return 3;}     //Regula de quanto em quanto tempo o bot vai enviar notificação de vida para o centro de comando ou botmaster.
 
    virtual void finaliza(){}
 

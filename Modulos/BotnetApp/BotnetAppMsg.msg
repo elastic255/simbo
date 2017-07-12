@@ -24,9 +24,10 @@ cplusplus {{
 class noncobject BotnetCommandStruct;
 namespace inet;
 
+//fixme: desenvolver parametros.
 packet BotnetAppMsg
 {
-	int acao;
+	int acao;						
 	int vulnerabilidade;
 	int dado;
 	BotnetCommandStruct BCS;

@@ -3,7 +3,8 @@
 
 #include "inet/common/INETDefs.h"
 #include <string>
-
+//Cabeçlho para juntar todas as bibliotecas
+//projeto futuro.
 
 
 
