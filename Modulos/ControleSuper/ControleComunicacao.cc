@@ -66,13 +66,15 @@ ControleComunicacao::ControleComunicacao(const char *patht, const char *name) {
     escreveArquivoControle(controlinput,0);
     escreveArquivoControle(controloutput,0);
     dataoutput.close();
-    habilitado = true;
-    operante = true;
+    habilitado = true;      //Flag se os arquivos estão abertos.
+    operante = true;        //Flag se os novos comandos foram lidos.
 
 }
 
 
 ControleComunicacao& ControleComunicacao::next(){
+    //Escreve token no arquivo de controle.
+
     if(habilitado && operante){
         if(controloutput.is_open() ){
             idcontrol++;
@@ -88,7 +90,7 @@ ControleComunicacao& ControleComunicacao::next(){
 
 
 bool ControleComunicacao::clone(ControleComunicacao tmp){
-    //TODO Terminar de criar essa classe.
+    //TODO Terminar de criar este método.
     nome.assign(tmp.nome);
     path.assign(tmp.path);
     habilitado = tmp.habilitado;
@@ -99,6 +101,8 @@ bool ControleComunicacao::clone(ControleComunicacao tmp){
 }
 
 void ControleComunicacao::readControl(){
+    //Lê o arquivo de controle e verifica se o token é o esperado.
+
     if(habilitado && operante){
         if( controlinput.is_open()){
             long int id = 0;
@@ -121,8 +125,9 @@ void ControleComunicacao::readControl(){
 }
 
 void ControleComunicacao::readInput(){
+    //Lê os comandos do arquivo.
+    //TODO: Colocar alerta para o dataoutput.open.
 
-//TODO: Colocar alerta para o dataoutput.open.
     dataoutput.open(tmp2.c_str(),std::fstream::out);
 
     if( datainput.is_open()){
@@ -148,10 +153,14 @@ void ControleComunicacao::readInput(){
 }
 
 void ControleComunicacao::reflesh(){
+    //Reset da flag para iniciar uma nova rodada.
+
     operante = true;
 }
 
 void ControleComunicacao::escreveArquivoControle(std::fstream &arquivo,long int id){
+    //Escreve o token no arquivo de controle.
+
     char str[256];
     sprintf(str, "%ld", id);
     arquivo.write(str,strlen(str));
@@ -161,6 +170,8 @@ void ControleComunicacao::escreveArquivoControle(std::fstream &arquivo,long int 
 }
 
 void ControleComunicacao::escreveArquivoControle(std::ofstream &arquivo,long int id){
+    //Escreve o token no arquivo de controle.
+
     char str[256];
     sprintf(str, "%ld", id);
     arquivo.write(str,strlen(str));
@@ -170,6 +181,8 @@ void ControleComunicacao::escreveArquivoControle(std::ofstream &arquivo,long int
 }
 
 void ControleComunicacao::fechaArquivos(){
+    //Fecha todos os arquivos.
+
         if(datainput.is_open()){datainput.close();}
         if(dataoutput.is_open()){dataoutput.close();}
         if(controlinput.is_open()){controlinput.close();}
@@ -190,10 +203,14 @@ ControleComunicacao::~ControleComunicacao() {
 int ControleComunicacao::objcriados = 0;
 
 int ControleComunicacao::getIdNumber(){
+    //Retorna o número atual de conexões criadas.
+
     return ControleComunicacao::objcriados;
 }
 
 int ControleComunicacao::getNewIdNumber(){
+    //Retorna um novo id para conexão, que é o número de conexões criadas +1.
+
     int a;
     a = ControleComunicacao::objcriados;
     ControleComunicacao::objcriados++;

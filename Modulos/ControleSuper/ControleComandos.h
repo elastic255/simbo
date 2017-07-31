@@ -32,7 +32,7 @@ class INET_API ControleComandos {
 //Classe
 public:
     static void setModuloSim(cModule *mod);
-    static cModule *ModSim;
+    static cModule *ModSim;     //Guarda referência ao módulo de simulação (pai de todos os módulos, como hosts).
 
 //Objeto
 public:
@@ -41,8 +41,8 @@ public:
     virtual ~ControleComandos();
 
 private:
-    std::ofstream *dataoutput;
-    std::string name,path;
+    std::ofstream *dataoutput;  //Referência de arquivo de saída para resposta do comando.
+    std::string name,path;      //Nome de referência e caminho dos arquivos.
     virtual char * getNextToken();
     virtual int getNextTokenInt();
     virtual void escrever(char * st);

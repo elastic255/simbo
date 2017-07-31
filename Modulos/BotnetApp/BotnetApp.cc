@@ -45,7 +45,7 @@ void BotnetApp::initialize(int stage)
             serverSocket.bind(*localAddress ? L3AddressResolver().resolve(localAddress) : L3Address(), localPort);
             serverSocket.setCallbackObject(this);
             serverSocket.setOutputGate(gate("tcpOut"));
-            setStatusString("waiting");
+            //setStatusString("waiting");
             serverSocket.listen();
             /////////////////////////////////////////////
 

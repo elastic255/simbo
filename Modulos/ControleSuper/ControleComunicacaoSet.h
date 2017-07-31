@@ -15,13 +15,15 @@ namespace inet {
 class ControleComunicacaoSet {
 public:
 
-    enum Status: int {Ativo,
+    //Não utilizado em plenitude, precisa desenvolver.
+    enum Status: int {  Ativo,
                         Inativo,
                         RecemCriado};
 
-    std::vector<ControleComunicacao*> listaModulos;
-    std::vector<Status> estado;
-    int tamanho;
+
+    std::vector<ControleComunicacao*> listaModulos; //Lista todas as conexões.
+    std::vector<Status> estado;                     //Não utilizado em plenitude, precisa desenvolver.
+    int tamanho;                                    //Número de conexões ativas.
 
 
 

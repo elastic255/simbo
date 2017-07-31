@@ -13,6 +13,9 @@
 // along with this program.  If not, see http://www.gnu.org/licenses/.
 // 
 
+//Módulo para poder enviar mensagens para vários hosts.
+// Provavelmente legado com as novas atualizações do Inet.
+
 #include "inet/applications/simbo/Modulos/AppClient/AppClient.h"
 
 namespace inet {
@@ -161,7 +164,7 @@ void AppClient::conectar()
     }
     else {
         EV_INFO << "Connecting to " << connectAddress << "(" << destination << ") port=" << connectPort << endl;
-        setStatusString("connecting");
+        //setStatusString("connecting");
 
         TCPSocket* socketQ = new TCPSocket();
         //socketQ->renewSocket();
@@ -374,7 +377,7 @@ void AppClient::socketDataArrived(int connId, void *ptr, cPacket *msg, bool urge
     else if (socket.getState() != TCPSocket::LOCALLY_CLOSED) {
         EV_INFO << "reply to last request arrived, closing session\n";
 
-        setStatusString("closing");
+        //setStatusString("closing");
         EV_INFO << "issuing CLOSE command\n";
         TCPSocket* tmp = getConexao(connId);
         tmp->close();

@@ -25,24 +25,24 @@ Sniffer::Sniffer() {}
 
 void Sniffer::initialize(int stage){
 
-    //printf("oi1 \n");
+
     cSimpleModule::initialize(stage);
 
-
-
     if (stage == INITSTAGE_LOCAL) {
-    //printf("oi2 \n");
+
     nome = (char*)malloc(sizeof(char)*100);
     this->getParentModule()->subscribe("packetSentToLower",this);
     this->getParentModule()->subscribe("packetReceivedFromLower",this);
 
-    //ControleSuper::fsniffers(this,&this->dados_size); ControleSuper Aqui !!!
+    //ControleSuper::fsniffers(this,&this->dados_size); //ControleSuper Aqui !!!
 
     }
 
 }
 
 L3Address Sniffer::myip(){
+    //Retorna IP do server.
+
     InterfaceTable* interfacetab =(InterfaceTable*) this->getParentModule()->getSubmodule("interfaceTable");
     InterfaceEntry *interface =  interfacetab->getInterface(1);
     L3Address temp1 = L3Address(interface->ipv4Data()->getIPAddress());
@@ -54,7 +54,7 @@ void Sniffer::handleMessage(cMessage *msg)
 
 }
 
-void Sniffer::receiveSignal(cComponent *source, simsignal_t signalID, cObject *obj DETAILS_ARG)
+void Sniffer::receiveSignal(cComponent *source, simsignal_t signalID, cObject *obj, cObject *details)
 {
 
     //TODO consertar a cambiarra das 3 linhas abaixo. e mudar para o construtor.
@@ -96,13 +96,17 @@ void Sniffer::receiveSignal(cComponent *source, simsignal_t signalID, cObject *o
     }
 }
 
-//TODO salvar os dados em arquivo personalizaveis.
+//TODO salvar os dados em arquivo personalizaveis. ???
 
 long int Sniffer::escreve(){
+    //Escreve tudo que tiver no arquivo. Todos os registros desde do começo.
+
     return escreve(0);
 }
 
 long int Sniffer::escreve(long int ponto){
+    //Escreve no arquivo do ponto indicado até o fim (atual).
+
     long int s,i;
     char txt[500];
     char str[30];
@@ -148,6 +152,7 @@ long int Sniffer::escreve(long int ponto){
 
 
 void Sniffer::desalocaDados(){
+    //Limpa os registro da memória.
 
     long int s,i;
     s = dados.size();
@@ -160,6 +165,7 @@ void Sniffer::desalocaDados(){
 }
 
 void Sniffer::finish(){
+    //Termina as operações do módulo.
     escreve();
     desalocaDados();
 }

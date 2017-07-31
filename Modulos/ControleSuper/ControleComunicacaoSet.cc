@@ -18,7 +18,7 @@
 namespace inet {
 
 ControleComunicacaoSet::ControleComunicacaoSet() {
-    tamanho = 0;
+    tamanho = 0;    //Número de conexões.
 }
 
 ControleComunicacaoSet::ControleComunicacaoSet(ControleComunicacao *a) {
@@ -27,23 +27,29 @@ ControleComunicacaoSet::ControleComunicacaoSet(ControleComunicacao *a) {
 }
 
 void ControleComunicacaoSet::add(ControleComunicacao *com) {
+    //Adiciona a conexão à lista de conexões.
+
     listaModulos.push_back(com);
     estado.push_back(ControleComunicacaoSet::RecemCriado);
     tamanho++;
 }
 
 void ControleComunicacaoSet::criar(const char *a) {
+    //Cria objeto para controlar a comunicação com um dado programa externo e adiciona à lista de comunicações ativas.
+
     ControleComunicacao *com =  new ControleComunicacao(".\\io\\controles\\",a);
     add(com);
 }
 
 void ControleComunicacaoSet::iniciar() {
+    //Inicia todas as conexões.
     for (int i=0;i<tamanho;i++){
         listaModulos[i]->next();
     }
 }
 
 void ControleComunicacaoSet::loop() {
+    //Todas as conexões verificam se estão autorizadas a atuar.
     for (int i=0;i<tamanho;i++){
         if(listaModulos[i]->isOperante()){
             listaModulos[i]->readControl();
@@ -52,6 +58,8 @@ void ControleComunicacaoSet::loop() {
 }
 
 bool ControleComunicacaoSet::isprosseguir() {
+    //Verifica se a simulação pode continuar.
+
     bool verifica = false;
     for (int i=0;i<tamanho;i++){
         if(listaModulos[i]->isOperante()){
@@ -62,6 +70,8 @@ bool ControleComunicacaoSet::isprosseguir() {
 }
 
 void ControleComunicacaoSet::reflesh() {
+    //Reset das flags das conexões para a próxima rodada.
+
     for (int i=0;i<tamanho;i++){
             listaModulos[i]->reflesh();
     }
@@ -69,7 +79,8 @@ void ControleComunicacaoSet::reflesh() {
 
 
 void ControleComunicacaoSet::fechar() {
-    //TODO: Verificar se é uma função Legada
+    //Fecha todas as conexões.
+
     for (int i=0;i<tamanho;i++){
         listaModulos[i]->fechaArquivos();
     }
@@ -77,6 +88,8 @@ void ControleComunicacaoSet::fechar() {
 }
 
 void ControleComunicacaoSet::finalizar() {
+    //Encerra o objeto.
+
     fechar();
     for (int i=0;i<tamanho;i++){
         delete listaModulos[i];
@@ -85,7 +98,7 @@ void ControleComunicacaoSet::finalizar() {
 
 
 ControleComunicacaoSet::~ControleComunicacaoSet() {
-    // TODO Auto-generated destructor stub
+
 }
 
 

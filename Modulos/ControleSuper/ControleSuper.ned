@@ -13,6 +13,6 @@ simple ControleSuper
         bool matlab = default(false);
         bool jacamo = default(false);
         bool javaconsole = default(false);
-        int periodoComunicacao = default(60);
+        int periodoComunicacao = default(60);	//Define quanto tempo deve passar na simulação por rodada.
 }
 

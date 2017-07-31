@@ -34,13 +34,11 @@ typedef struct DadosSniffer{
 class INET_API ControleSuper : public cSimpleModule  {
 public:
 
-      ControleComunicacaoSet lista;
-
-      cMessage *timerCS;
+      ControleComunicacaoSet lista;     //Objeto que controla a comunicação com o programa externo.
+      cMessage *timerCS;    //Timer padrão desta classe.
 
 private:
-    static std::vector<DadosSniffer *> sniffers;
-
+    static std::vector<DadosSniffer *> sniffers; //Vetor com referência a todos os sniffers presentes na simulação.
 
 
 public:

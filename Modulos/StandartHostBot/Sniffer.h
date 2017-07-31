@@ -29,6 +29,7 @@
 
 namespace inet {
 
+//Registro de dados de saída ou entrada.
 typedef struct DadosRedeHost{
         L3Address ipdestino;
         L3Address ipremetente;
@@ -42,14 +43,14 @@ typedef struct DadosRedeHost{
 class INET_API Sniffer : public cSimpleModule, protected cListener{
 public:
 
-    std::vector<DadosRedeHost*> dados;
-    long int dados_size;
-    char *nome;
+    std::vector<DadosRedeHost*> dados;  //Vetor com todos os dados que entraram e saíram do host.
+    long int dados_size;                //Contagem de todos os dados que entraram e sairam.
+    char *nome;                         //Nome do host.
 
     Sniffer();
     virtual void initialize(int stage) override;
     virtual void handleMessage(cMessage *msg) override;
-    virtual void receiveSignal(cComponent *source, simsignal_t signalID, cObject *obj DETAILS_ARG) override;
+    virtual void receiveSignal(cComponent *source, simsignal_t signalID, cObject *obj, cObject *details) override;
     virtual void finish() override;
 
     virtual long int escreve();

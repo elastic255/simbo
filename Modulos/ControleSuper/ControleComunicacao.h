@@ -30,11 +30,11 @@ public:
     std::string tmp1,tmp2,tmp3,tmp4;
     std::fstream datainput,controlinput;
     std::ofstream dataoutput,controloutput;
-    std::string nome,path;
-    bool habilitado;
-    bool operante;
-    long int idcontrol; //id dos arquivos
-    int idcomunicacao; //id do objeto
+    std::string nome,path;  //Nome de referência e caminho de onde estão os arquivos.
+    bool habilitado;        //Flag se os arquivos estão abertos.
+    bool operante;          //Flag se os novos comandos foram lidos.
+    long int idcontrol;     //id dos arquivos / token externo
+    int idcomunicacao;      //id do objeto   / token interno
 
 
 
@@ -54,7 +54,7 @@ public:
 
     virtual ~ControleComunicacao();
 ////////////STATIC//////////////////////////////
-    static int objcriados;
+    static int objcriados;      //Número de conexões criadas.
     static int getIdNumber();
     static int getNewIdNumber();
 

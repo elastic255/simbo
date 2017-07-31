@@ -26,11 +26,11 @@ namespace inet {
 
 Define_Module(ControleSuper);
 
-std::vector<DadosSniffer *> ControleSuper::sniffers;
+std::vector<DadosSniffer *> ControleSuper::sniffers;    //Vetor com referência a todos os sniffers presentes na simulação.
 
 
 ControleSuper::ControleSuper() {
-    // TODO Auto-generated constructor stub
+
 }
 
 void ControleSuper::initialize(int stage){
@@ -58,15 +58,21 @@ void ControleSuper::initialize(int stage){
 }
 
 void ControleSuper::setModuloSim2(){
+    //Pega o módulo da simulação e passa a sua referência para a classe ControleComandos.
+
     ControleComandos::setModuloSim(this->getParentModule());
 }
 
 void ControleSuper::EndAll(){
+    //Termina a simulação
+
     cSimpleModule end;
     end.endSimulation();
 }
 
 void ControleSuper::remarca(int f, simtime_t g){
+    //Agenda um timer/alarme.
+
         timerCS = new cMessage("ControleSuper");
         simtime_t d = simTime()+g;
         timerCS->setKind(f);
@@ -77,6 +83,7 @@ void ControleSuper::handleMessage(cMessage *msg)
 {
     //Recebe mensagem e verifica se aquela mensagem foi enviada por esse objeto,
     //se foi é um alarme e deve ser passado a função handleTimer.
+
     if (msg->isSelfMessage())
         handleTimer(msg);
     else{
@@ -86,7 +93,7 @@ void ControleSuper::handleMessage(cMessage *msg)
 }
 
 void ControleSuper::handleTimer(cMessage *msg){
-    //Recebe um aviso do alarme que o tempo (PItempo) já se passou,
+    //Recebe um aviso do alarme que o tempo já se passou,
     //e é hora de verificar as entradas dos programas externos.
 
     lista.iniciar();
@@ -100,6 +107,8 @@ void ControleSuper::handleTimer(cMessage *msg){
 }
 
 void ControleSuper::escreveArquivoDadosSniffer(){
+    //Escreve nos arquivos os dados coletados pelos sniffers.
+
     int i,n;
     long int size;
     n = ControleSuper::sniffers.size();
@@ -112,6 +121,9 @@ void ControleSuper::escreveArquivoDadosSniffer(){
 }
 
 void ControleSuper::fsniffers(Sniffer* obji, long int* i){
+    //Adiciona um elemento no vetor de sniffers.
+    //TODO: Melhorar essa descrição / fazer diagrama.
+
     DadosSniffer *kl;
     kl = (DadosSniffer*)malloc(sizeof(DadosSniffer));
     kl->obj = obji;
@@ -122,6 +134,8 @@ void ControleSuper::fsniffers(Sniffer* obji, long int* i){
 
 
 void ControleSuper::escreveArquivoControle(std::fstream &arquivo,long int id){
+    //Escreve no arquivo de controle, avisando que a operação foi concluida.
+
     char str[256];
     sprintf(str, "%d", id);
     arquivo.write(str,strlen(str));
@@ -131,6 +145,8 @@ void ControleSuper::escreveArquivoControle(std::fstream &arquivo,long int id){
 }
 
 void ControleSuper::escreveArquivoControle(std::ofstream &arquivo,long int id){
+    //Escreve no arquivo de controle, avisando que a operação foi concluida.
+
     char str[256];
     sprintf(str, "%d", id);
     arquivo.write(str,strlen(str));

@@ -14,11 +14,9 @@
 // 
 
 #include "inet/applications/simbo/Modulos/ControleSuper/ControleComandos.h"
-
 #include "inet/applications/simbo/Modulos/ControleSuper/ControleSuper.h"
 #include "inet/applications/simbo/Modulos/BotnetApp/BotnetApp.h"
 #include "inet/applications/simbo/Classes/Botnet/BotnetInterface.h"
-
 #include "inet/applications/simbo/Classes/Botnet/Botnet.h"
 
 
@@ -26,20 +24,26 @@
 
 namespace inet {
 
-cModule * ControleComandos::ModSim=NULL;
+cModule * ControleComandos::ModSim=NULL;    //Modulo que representa a simulacao, está no topo e contem todos os módulos dos hosts.
 
 ControleComandos::ControleComandos(std::string name2, std::string path2, std::ofstream &dout) {
-    name = name2; // somente necessário para proximoComando.
-    path = path2; //somente necessário para proximoComando.
-    dataoutput = &dout;
+    name = name2; // somente necessário para proximoComando e autoscript. Nome dos arquivos, correspondente ao programa externo.
+    path = path2; //somente necessário para proximoComando e autoscript.  Caminho dos arquivos, correspondente ao programa externo.
+    dataoutput = &dout;     //refêrencia ao arquivo de escrita para a saída da resposta.
 
 }
 
 void ControleComandos::setModuloSim(cModule *mod){
+    //Aloca uma referência para o módulo da simulação.
     ModSim = mod;
 }
 
 void ControleComandos::exec(char *s){
+    //Funciona como um índice que relaciona o comando escrito com a função correspondente.
+
+    //TODO: acrescentar funções para controlar a simulação.
+    //TODO: pensar numa forma mais programática de fazer isso.
+
     char * pch;
     pch = strtok (s," ,-");
     if(pch == nullptr){return;}
@@ -62,20 +66,26 @@ void ControleComandos::exec(char *s){
     if(strcmp(pch,"invade")==0){}
 }
 
-//TODO: acrescentar funções para controlar a simulação.
+
 
 
 void ControleComandos::escrever(char * str){
+    //Escreve no arquivo de saída a resposta do comando.
     //TODO retirar /n da última linha, ocasionando bug de leitura para alguns programas externos.
+
     dataoutput->write(str,strlen(str));
     dataoutput->flush();
 }
 
 char * ControleComandos::getNextToken(){
+    //Busca o próximo token, pode ser um comando ou argumento de um comando.
+
     return std::strtok(NULL, " ,-");
 }
 
 int ControleComandos::getNextTokenInt(){
+    //Busca o próximo argumento de um comando que seja numérico.
+
     char * pch;
     pch = getNextToken();
     if(pch == nullptr){throw cRuntimeError(" Argumento nao encontrado - getNextTokenInt(ControleComandos.cc)");}
@@ -91,7 +101,9 @@ ControleComandos::~ControleComandos() {
 ///////////////////////////////////////////////////////////////////////////////
 
 void ControleComandos::Tinfecta(){
-    // Tinfecta nome;
+    // Uso: Tinfecta nome_host
+    // Descrição: Torna este host imediatamente infectado.
+
     char str[256];
     char *nome2 = (char *)malloc(sizeof(char)*256);
     char *nome1 = getNextToken();
@@ -113,10 +125,16 @@ void ControleComandos::Tinfecta(){
 }
 
 void ControleComandos::BotInfecta(){
+    // Uso: BotInfecta nome_host
+    // Descrição: Ordena que o bot ataque este host.
 
 }
 
 void ControleComandos::pintaDeVermelho(){
+    //Serviu de teste.
+    //Pinta um host de vermelho e verifica se os comandos estão funcionando.
+    //Todo: Criar um comanda que pinta os host de qualquer cor, para criar demarcadores.
+
     char str[256];
     char *nome2 = (char *)malloc(sizeof(char)*256);
     char *nome1 = getNextToken();
@@ -133,6 +151,8 @@ void ControleComandos::pintaDeVermelho(){
 }
 
 void ControleComandos::autoScript(){
+    //Executa todos os comandos presentes em um arquivo.
+
     std::string tmp1,tmp3;
     std::fstream datainput,scriptinput;
 
@@ -167,6 +187,8 @@ void ControleComandos::autoScript(){
 }
 
 void ControleComandos::proximoComando(){
+    //Pega o próximo comando.
+
     std::string tmp1,tmp3;
     std::fstream datainput,controlinput;
 
@@ -225,8 +247,9 @@ void ControleComandos::proximoComando(){
 
 
 void ControleComandos::sniffcompn(){
-    //Comando: sniffcompn [nome do computador]
-    //Retorna o histórico de trafego (entrada e saída) do computador desde da última requisição desta função.
+    // Uso: sniffcompn nome_do_computador
+    // Descrição: Retorna o histórico de trafego (entrada e saída) do computador desde da última requisição desta função.
+
     char str[256];
     char *nome1 = (char *)malloc(sizeof(char)*256);
     char *nome2 = getNextToken();
@@ -245,8 +268,10 @@ void ControleComandos::sniffcompn(){
 }
 
 void ControleComandos::sniffcomp(){
-    //Comando: sniffcomp [nome do computador]
-    //Retorna todo o histórico de trafego (entrada e saída) do computador desde o começo da simulação.
+    //Uso: sniffcomp nome_do_computador
+    //Descrição: o histórico de trafego (entrada e saída) do computador desde o começo da simulação.
+    //TODO: verificar.
+
     char str[256];
     char *nome2 = (char *)malloc(sizeof(char)*256);
     char *nome1 = getNextToken();
@@ -262,8 +287,9 @@ void ControleComandos::sniffcomp(){
 }
 
 void ControleComandos::ipbotmaster(){
-    //Comando: ipbotmaster
-    //Retorna o IP do botmaster.
+    //Uso: ipbotmaster
+    //Descrição: Retorna o IP do botmaster.
+
     char str[256];
     IPv4RoutingTable* mod = (IPv4RoutingTable*) ModSim->getModuleByPath(".inicial.routingTable");
     if(mod == nullptr){throw cRuntimeError(" Modulo nao encontrado no ipbotmaster(ControleComandos.cc)");}
@@ -273,8 +299,8 @@ void ControleComandos::ipbotmaster(){
 }
 
 void ControleComandos::ipcomputador(){
-    //Comando: ipcomputador [nome do computador]
-    //Retorna o IP do computador.
+    //Uso: ipcomputador [nome do computador]
+    //Descrição: Retorna o IP do computador.
     char str[256];
     char *nome2 = (char *)malloc(sizeof(char)*256);
     char *nome1 = getNextToken();
@@ -290,6 +316,9 @@ void ControleComandos::ipcomputador(){
 }
 
 void ControleComandos::Finish(){
+    //Uso: Finish
+    //Descrição: Encerra a simulação.
+
     throw cTerminationException(E_ENDSIM);
     //throw cTerminationException("Simulacao Terminada por ControleComandos.");
 }
@@ -311,6 +340,8 @@ void ControleComandos::Start(){
 */
 
 void ControleComandos::teste(){
+    //Teste para verificar se é possível ler comando.
+
     int num = getNextTokenInt();
     char str[256];
     sprintf(str, "Teste bem sucedido %ld\n", num);
@@ -318,6 +349,8 @@ void ControleComandos::teste(){
 }
 
 void ControleComandos::teste2(){
+    //Teste para verificar se é possível selecionar um módulo na simulação.
+
     char str[256];
     //int num1 = getNextTokenInt();
     //int num2 = getNextTokenInt();

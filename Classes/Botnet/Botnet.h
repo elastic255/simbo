@@ -47,7 +47,7 @@ public:
     Botnet(BotnetApp *);
     virtual ~Botnet();
 
-    BotnetApp *obj;
+    BotnetApp *obj; //Guarda referência do módulo simples.
 
    virtual void prospectaTopologia();
    virtual bool terminoProspectaTopologia();
