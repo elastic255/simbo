@@ -1,5 +1,5 @@
 //
-// Generated file, do not edit! Created by nedtool 5.1 from inet/applications/simbo/Modulos/BotnetApp/BotnetAppMsg.msg.
+// Generated file, do not edit! Created by nedtool 5.2 from inet/applications/simbo/Modulos/BotnetApp/BotnetAppMsg.msg.
 //
 
 // Disable warnings about unused variables, empty switch stmts, etc:

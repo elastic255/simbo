@@ -12,10 +12,10 @@
 
 namespace inet {
 
-//Registro que armazena toda a informação sabida do bot sobre aquele ip.
+//Registro que armazena toda a informaï¿½ï¿½o sabida do bot sobre aquele ip.
 typedef struct CellTopo{
     int id;
-    L3Address ip;						//Endereço do host (IP)
+    L3Address ip;						//Endereï¿½o do host (IP)
     int connId;							//Identificador de ConexÃ£o entre o bot e esse computador.
     TCPSocket socket;					//Socket aberto entre o bot e esse computador.
     std::vector<int> vulnerabilidade;	//Vulnerabilidades conhecidas deste computador.

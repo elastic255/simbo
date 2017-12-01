@@ -1,10 +1,10 @@
-# simbo
+# simbo - fork
 Botnet simulation packages for Omnet++
 
 This project is under development.
 
 To start using SimBo, just drop 'simbo' folder under inet/applications project tree.
 
-Requirements: Omnet++ 5.1 and Inet 3.6 
+Requirements: Omnet++ 5.2 and Inet 3.6 
 
-For more information, felipebalabanian@gmail.com
+For more information, fabio\_harada@hotmail.com

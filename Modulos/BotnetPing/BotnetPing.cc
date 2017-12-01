@@ -240,6 +240,7 @@ void BotnetPing::startSendingPingRequests()
 void BotnetPing::stopSendingPingRequests()
 {
     try{
+        //Enter_Method_Silent();
         pid = -1;
         lastStart = -1;
         sendSeqNo = expectedReplySeqNo = 0;
@@ -269,6 +270,8 @@ void BotnetPing::scheduleNextPingRequest(simtime_t previous, bool withSleep)
 void BotnetPing::cancelNextPingRequest()
 {
     try{
+        //Enter_Method_Silent();
+        //printf("%s\n", timer->str());
         cancelEvent(timer);
         //delete timer;
         //cancelAndDelete(timer);
@@ -320,6 +323,7 @@ void BotnetPing::processPingResponse(PingPayload *msg)
         }
 
         adicionaEndereco(src);
+        printf("Added address: %s\n", src.str().c_str());
 
         // update statistics
         countPingResponse(msg->getByteLength(), msg->getSeqNo(), rtt);
@@ -327,7 +331,7 @@ void BotnetPing::processPingResponse(PingPayload *msg)
     }catch (const std::exception& ba){throw cRuntimeError("BotnetPing::processPingResponse ,Erro:%s",ba.what());}
 }
 
-//////////////////////////////Minhas Funções //////////////////////////////
+//////////////////////////////Minhas Funï¿½ï¿½es //////////////////////////////
 
 
 void BotnetPing::adicionaEndereco(L3Address src){
@@ -339,6 +343,7 @@ void BotnetPing::adicionaEndereco(L3Address src){
 bool BotnetPing::pingFinalizado(){
     try{
         if (destAddresses.size() == (uint)sentCount){
+            Enter_Method_Silent();
             cancelNextPingRequest();
             return true;
         }else{

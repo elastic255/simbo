@@ -1,0 +1,394 @@
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+// 
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+// 
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program.  If not, see http://www.gnu.org/licenses/.
+// 
+
+#ifndef INET_APPLICATIONS_SIMBO_MODULOS_ATHENABOT_ATHENABOT_H_
+#define INET_APPLICATIONS_SIMBO_MODULOS_ATHENABOT_ATHENABOT_H_
+
+#include "inet/common/INETDefs.h"
+#include "inet/applications/httptools/browser/HttpBrowserBase.h"
+#include "inet/applications/httptools/browser/HttpBrowser.h"
+#include "inet/applications/httptools/common/HttpMessages_m.h"
+#include "inet/applications/httptools/common/HttpRandom.h"
+#include <random>
+#include <limits>
+#include <cstring>
+#include <cstdlib>
+
+namespace inet {
+
+//namespace athena{
+
+#define MSGKIND_ACTIVITY_BOT_START 4
+#define MSGKIND_BOT_START_SESSION  5
+
+#define DEFAULT  1000
+#define MAX_PATH 260 // WinAPI max length
+#define KEY_SIZE 53 // Http build
+
+//Operating Systems
+#define WINDOWS_UNKNOWN                 1
+#define WINDOWS_2000                    2
+#define WINDOWS_XP                      3
+#define WINDOWS_2003                    4
+#define WINDOWS_VISTA                   5
+#define WINDOWS_7                       6
+#define WINDOWS_8                       7
+
+//Max HTTP Packet Stuff
+#define MAX_HTTP_PACKET_LENGTH          5000
+
+class AthenaBot : public httptools::HttpBrowser {
+protected:
+    /* <------------- Defines Section -------------> */
+    struct in_addr {
+        unsigned long s_addr;  // load with inet_aton()
+    };
+
+    enum msg_type {on_exec, repeat, response};
+    typedef unsigned int DWORD; // WinAPI 32 bits unsigned integer
+    typedef struct _GUID {
+      unsigned long  Data1;
+      unsigned short Data2;
+      unsigned short Data3;
+      unsigned char  Data4[8];
+    } GUID, UUID;
+    typedef struct sockaddr_in {
+      short            sin_family;   // e.g. AF_INET
+      unsigned short   sin_port;     // e.g. htons(3490)
+      struct in_addr   sin_addr;     // see struct in_addr, below
+      char             sin_zero[8];  // zero this if you want to
+    } SOCKADDR_IN, *PSOCKADDR_IN;
+
+    /* <------------ Variables Section ------------> */
+    // OMNeT++ Related
+    cMessage *newMessage = nullptr;
+
+    // Bot status
+    bool isInfected;
+
+    // Bot global variables
+
+    //Info
+    char            cRegistryKeyAccess[5];
+    DWORD           dwOperatingSystem;
+
+    //Botkiller
+    DWORD            dwKilledProcesses;
+    DWORD            dwFileChanges;
+    DWORD            dwRegistryKeyChanges;
+    bool             bBotkill;
+    //Under here is one-cycle stuff
+    bool            bBotkillOnce;
+    DWORD           dwKilledProcessesSaved;
+    DWORD           dwFileChangesSaved;
+    DWORD           dwRegistryKeyChangesSaved;
+    bool            bBotkillInitiatedViaCommand;
+
+    //Lock Computer
+    bool             bLockComputer;
+
+    //Packet sniff
+    bool             bPacketSniffing;
+
+    //Utility Variables
+    char            cZoneIdentifierSuffix[25];
+    bool            bComputerXpOrUnder;
+    char            cFileSaved[MAX_PATH];
+    char            cFileSavedDirectory[MAX_PATH];
+    char            cThisFile[MAX_PATH];
+    unsigned long   ulFileHash;
+    char            cFileHash[10];
+    char            cBuild[DEFAULT];
+    char            cStoreParameter[DEFAULT];
+    bool            bStoreParameter;
+    bool            bStoreParameter2;
+    DWORD           dwStoreParameter;
+    char            cMainProcessMutex[DEFAULT];
+    char            cBackupProcessMutex[DEFAULT];
+    char            cUninstallProcessMutex[DEFAULT];
+    char            cUpdateMutex[DEFAULT];
+    char            cHostsPath[MAX_PATH];
+    char            cReturnNewline[3];
+    char            cRegistryKeyToCurrentVersion[MAX_PATH];
+    int             nBootType;
+
+    //Ftp related
+    char            cFtpUser[DEFAULT];
+    char            cFtpPass[DEFAULT];
+    char            cFtpHost[DEFAULT];
+
+    //Booleans
+    bool            bPersist;
+    bool            bSilent;
+    bool            bUninstallProgram;
+    bool            bNewInstallation;
+    bool            bRecoveredProcess;
+
+    //Download, execute, and update related
+    char            cDownloadFromLocation[DEFAULT];
+    bool            bUpdate;
+    bool            bDownloadAbort;
+    bool            bExecutionArguments;
+    bool            bGlobalOnlyOutputMd5Hash;
+    bool            bMd5MustMatch;
+    char            szMd5Match[DEFAULT];
+
+    //Browser related
+    char            cBrowsers[5][DEFAULT];
+
+    //Startup Paths
+    char            cAllUsersStartupDirectory[MAX_PATH];
+    char            cUserStartupDirectory[MAX_PATH];
+    char            cAppData[MAX_PATH];
+    char            cTempDirectory[MAX_PATH];
+    char            cUserProfile[MAX_PATH];
+    char            cAllUsersProfile[MAX_PATH];
+    char            cProgramFiles[MAX_PATH];
+
+    //Windows Directory
+    char            cWindowsDirectory[MAX_PATH];
+
+    //File Search
+    unsigned long   ulTotalFiles;
+    unsigned long   ulMatchingFiles;
+    bool            bOutputFileSearch;
+    unsigned int    uiTotalContainingIframeContents;
+    bool            bBusyFileSearching;
+
+    //Website visit
+    unsigned int    uiSecondsBeforeVisit;
+    unsigned int    uiSecondsAfterVisit;
+    DWORD           dwSmartViewCommandType;
+    unsigned int    uiWebsitesInQueue;
+
+    //Config
+    char            cVersion[DEFAULT];
+    char            cServer[DEFAULT];
+    char            cBackup[DEFAULT];
+    char            cServers[10][MAX_PATH];
+    unsigned short  usPort;
+    char            cChannel[DEFAULT];
+    char            cChannelKey[DEFAULT];
+    char            cAuthHost[DEFAULT];
+    char            cOwner[DEFAULT];
+    char            cServerPass[DEFAULT];
+
+    /*
+    //IRC hub management
+    unsigned int    nIrcSock;
+    char            cSend[MAX_IRC_SND_BUFFER];
+    char            cReceive[MAX_IRC_RCV_BUFFER];
+    DWORD           dwConnectionReturn;
+    char            cNickname[DEFAULT];
+    char            *pcParseLine;
+    char            *pcPartOfLine;
+    char            cIrcMotdOne[DEFAULT];
+    char            cIrcMotdTwo[DEFAULT];
+    char            cIrcJoinTopic[DEFAULT];
+    char            cIrcSetTopic[DEFAULT];
+    char            cCommandToChannel[DEFAULT];
+    char            cCommandToMe[DEFAULT];
+    bool            bAutoRejoinChannel;
+    char            cIrcResponseOk[10];
+    char            cIrcResponseErr[10];
+     */
+
+    //HTTP hub management
+    char            cUuid[44];
+    int             nCheckInInterval;
+    bool            bHttpRestart;
+    int             nCurrentTaskId;
+    int             nUninstallTaskId;
+    char            cHttpHostGlobal[MAX_PATH];
+    char            cHttpPathGlobal[MAX_PATH];
+    SOCKADDR_IN     httpreq;
+
+    //Flood related
+    bool            bDdosBusy;
+    DWORD           dwHttpPackets;
+    DWORD           dwSockPackets;
+    char            cFloodHost[DEFAULT];
+    char            cFloodPath[DEFAULT];
+    char            cFloodData[DEFAULT];
+    unsigned short  usFloodPort;
+    unsigned short  usFloodType;
+    bool            bBrowserDdosBusy;
+
+    /*
+    //Irc War related
+    char            cRemoteHost[DEFAULT];
+    unsigned short  usRemotePort;
+    unsigned short  usRemoteAttemptConnections;
+    unsigned short  usRemoteSuccessfulConnections;
+    bool            bRemoteIrcBusy;
+    SOCKET          sWar[MAX_WAR_CONNECTIONS];
+    DWORD           dwOpenSockets;
+    char            cRegisterQueryString[DEFAULT];
+    DWORD           dwValidatedConnectionsToIrc;
+    char            cCurrentWarStatus[100];
+    bool            bWarFlood;
+    char            cWarFloodTargetParam[DEFAULT];
+    bool            bNicknameRegisterTimer;
+    bool            bRegisterOnWarIrc;
+     */
+
+    //Base 64 characters
+    char            cBase64Characters[64];
+
+    //Checksums/CRC/Setup/Config/etc
+    unsigned long ulChecksum1;
+    unsigned long ulChecksum2;
+    unsigned long ulChecksum3;
+    unsigned long ulChecksum4;
+    unsigned long ulChecksum5;
+    unsigned long ulChecksum6;
+    unsigned long ulChecksum7;
+    unsigned long ulChecksum8;
+    unsigned long ulChecksum9;
+
+    //int nPortOffset;
+
+    unsigned short usVersionLength;
+    unsigned short usServerLength;
+    unsigned short usChannelLength;
+    unsigned short usChannelKeyLength;
+    unsigned short usAuthHostLength;
+    unsigned short usServerPassLength;
+
+    unsigned short usConfigStrlenKey;
+
+    char cIrcCommandPrivmsg[8];
+    char cIrcCommandJoin[5];
+    char cIrcCommandPart[5];
+    char cIrcCommandUser[5];
+    char cIrcCommandNick[5];
+    char cIrcCommandPass[5];
+    char cIrcCommandPong[5];
+
+    bool bConfigSetupCheckpointOne;
+    bool bConfigSetupCheckpointTwo;
+    bool bConfigSetupCheckpointThree;
+    bool bConfigSetupCheckpointFour;
+    bool bConfigSetupCheckpointFive;
+    bool bConfigSetupCheckpointSix;
+    bool bConfigSetupCheckpointEight;
+    bool bConfigSetupCheckpointSeven;
+    bool bConfigSetupCheckpointNine;
+    bool bConfigSetupCheckpointTen;
+
+    int nExpirationDateMedian;
+
+    // Random variables
+    httptools::rdObject *rdBotActivityLength = nullptr;
+    httptools::rdObject *rdBotInterSessionInterval = nullptr;
+    httptools::rdObject *rdBotReqInSession = nullptr;
+
+    /* <-------------------------------------------> */
+
+    /* <------------- Methods Section -------------> */
+    virtual void initialize(int stage) override;
+    // TCP Callback
+    /*
+     * Handler for socket data arrival.
+     * Called by the socket->processMessage(msg) handler call in handleMessage.
+     * virtual method of the parent class. The counter for pending replies is decremented for each one handled.
+     * Close is called on the socket once the counter reaches zero.
+     */
+    //virtual void socketDataArrived(int connId, void *yourPtr, cPacket *msg, bool urgent) override;
+
+    // OMNeT++ events
+    virtual void handleMessage(cMessage *msg) override;
+    void handleSelfMessages(cMessage *msg);
+    void handleSelfActivityBotStart();
+    void handleSelfBotStartSession();
+    //void scheduleNextBotEvent(int);
+
+    // Bot functions
+    int ConnectToHttp();
+
+    /**
+     * WinAPI functions
+     */
+    void fncUuidCreate(UUID *uuid);
+    void fncUuidToString(UUID *, char *);
+    void fncRpcStringFree(char *);
+
+    void StripDashes(char *);
+    //HOSTENT *fncgethostbyname(char *);
+    char *SimpleDynamicXor(char *pcString, DWORD dwKey);
+
+    /**
+     * Hub/IrcUtilities.cpp
+     */
+    char *GetOs();
+
+    /*
+     * Utilities/ComputerInfo.cpp
+     */
+    bool IsAdmin();
+    bool Is64Bits();
+    bool IsLaptop();
+    char *GetVersionMicrosoftDotNetVersion();
+    DWORD GetNumCPUs();
+
+    /*
+     * Encryption/Base64_.cpp
+     */
+    /**
+     * characters used for Base64 encoding
+     */
+    const char *BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    void _base64_encode_triple(unsigned char triple[3], char result[4]);
+    int _base64_char_value(char base64char);
+    int _base64_decode_triple(char quadruple[4], unsigned char *result);
+    size_t base64_decode(const char *source, char *target, size_t targetlen);
+    int base64_encode(unsigned char *source, size_t sourcelen, char *target, size_t targetlen);
+
+    /*
+     * Hub/HttpUtilities.cpp
+     */
+    bool SendPanelRequest(SOCKADDR_IN httpreq, char *cHttpHost, char *cHttpPath, unsigned short usHttpPort, char *cHttpData);
+    void EncryptSentData(char *cSource, char *cOutputData, char *cOutputEncryptedKey, char *cOutputRawKeyA, char *cOutputRawKeyB);
+    int GeneratestrtrKey(char *cOutputA, char *cOutputB);
+    void StringToStrongUrlEncodedString(char *cSource, char *cOutput);
+    void GenerateMarker(char *cOutput, char *cOutputBase64);
+
+    /*
+     * Utilities/Misc.cpp
+     */
+    void RunThroughUuidProcedure();
+    unsigned long GetRandNum(unsigned long range);
+    char *GenRandLCText(); //Generates random lowercase text
+
+    /*
+     * Utilities/srandRelated.cpp
+     */
+    unsigned long GenerateRandomSeed();
+
+    /*
+     * Utilities/ProcessStrings.cpp
+     */
+    void strtr(char *cSource, char *cCharArrayA, char *cCharArrayB);
+
+public:
+    AthenaBot();
+    virtual ~AthenaBot();
+
+};
+//} /* namespace athena */
+
+} /* namespace inet */
+
+#endif /* INET_APPLICATIONS_SIMBO_MODULOS_ATHENABOT_ATHENABOT_H_ */

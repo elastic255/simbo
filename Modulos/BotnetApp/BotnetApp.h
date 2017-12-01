@@ -40,7 +40,7 @@
 namespace inet {
 
 
-//class Botnet; //Não utilizada neste arquivo, substituido por BotnetInterface.
+//class Botnet; //Nï¿½o utilizada neste arquivo, substituido por BotnetInterface.
 class BotnetInterface;
 
 /**
@@ -50,7 +50,7 @@ class INET_API BotnetApp : public TCPAppBase, public ILifecycle
 {
 
   public:
-    //Identificador (TAG) para os timers utilizados pela classe. É resolvido em BotnetApp::handleTimer.
+    //Identificador (TAG) para os timers utilizados pela classe. ï¿½ resolvido em BotnetApp::handleTimer.
     enum TiposMsg: int {MSG_INICIA,
                         MSGKIND_CONNECT,
                         MSG_FINALIZA,
@@ -70,23 +70,23 @@ class INET_API BotnetApp : public TCPAppBase, public ILifecycle
                         MSG_SEND_ALIVE_FEEDBACK};
 
     //Identificador (TAG) do estado do computador.
-    enum Operanti: int {OP_SAUDAVEL,    //Computador não está infectado. Está saudável.
-                        OP_INFECTADO,   //Computador está infectada e faz parte da botnet.
-                        OP_MASTER,      //Computador é o Botmaster da botnet.
-                        OP_COMANDER};   //Computador é um Centro de Comando da botnet.
+    enum Operanti: int {OP_SAUDAVEL,    //Computador nÃ£o estÃ¡ infectado. EstÃ¡ saudÃ¡vel.
+                        OP_INFECTADO,   //Computador estÃ¡ infectada e faz parte da botnet.
+                        OP_MASTER,      //Computador Ã© o Botmaster da botnet.
+                        OP_COMANDER};   //Computador Ã© um Centro de Comando da botnet.
 
     //Identificador do tipo de mensagem a ser enviada a outro computador.
-    enum TipoExtMsg: int  {TEM_INVASION,    //A mensagem contém um ataque.
-                           TEM_VIVO,        //A mensagem avisa que o computador pertence a botnet. Está vivo para a botnet.
-                           TEM_COMANDO,     //A mensagem trás um comando do botmaster para esse bot.
-                           TEM_REPASSACOMANDO}; //A mensagem trás um comando do botmaster para outro bot. E deve ser repassada.
+    enum TipoExtMsg: int  {TEM_INVASION,    //A mensagem contï¿½m um ataque.
+                           TEM_VIVO,        //A mensagem avisa que o computador pertence a botnet. Estï¿½ vivo para a botnet.
+                           TEM_COMANDO,     //A mensagem trï¿½s um comando do botmaster para esse bot.
+                           TEM_REPASSACOMANDO}; //A mensagem trï¿½s um comando do botmaster para outro bot. E deve ser repassada.
 
 
   protected:
     cMessage *timeoutMsg = nullptr;		
-    NodeStatus *nodeStatus = nullptr;	//Usado pelo módulo simples na simulação para controlar simulação
-    simtime_t startTime;	//Tempo para iniciar o módulo. (não usado, legado).
-    simtime_t stopTime;		//Tempo para finaliza o módulo. (não usado, legado).
+    NodeStatus *nodeStatus = nullptr;	//Usado pelo mï¿½dulo simples na simulaï¿½ï¿½o para controlar simulaï¿½ï¿½o
+    simtime_t startTime;	//Tempo para iniciar o mï¿½dulo. (nï¿½o usado, legado).
+    simtime_t stopTime;		//Tempo para finaliza o mï¿½dulo. (nï¿½o usado, legado).
 
 
 
@@ -102,7 +102,7 @@ class INET_API BotnetApp : public TCPAppBase, public ILifecycle
     virtual bool handleOperationStage(LifecycleOperation *operation, int stage, IDoneCallback *doneCallback) override;
     virtual void handleMessage(cMessage *) override;
 
-    ////MINHAS FUNÇÕES
+    ////MINHAS FUNï¿½ï¿½ES
   protected:
     virtual void sendPacket(cPacket *,int);
     TCPSocket *tempSocket;  //Porta para resolver pacotes recebidos.
@@ -111,12 +111,12 @@ class INET_API BotnetApp : public TCPAppBase, public ILifecycle
 
 
   public:
-    BotnetInterface *botnet; //Motor de comportamento da botnet.
+    BotnetInterface *botnet; // Motor de comportamento da botnet.
 
     Operanti estado = OP_SAUDAVEL;	//Estado do computador.
     TCPSocket serverSocket; //Porta para receber pacotes (server).
     TCPSocket masterSocket; //Porta para se comunicar com o botmaster ou CC.
-    L3Address myip; 		//IP do nó
+    L3Address myip; 		//IP do nÃ³
 
     virtual void inicia();
     void setEstado(Operanti a){estado = a;}
