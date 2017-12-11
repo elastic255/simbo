@@ -39,9 +39,10 @@ void AthenaCC::initialize(int stage)
         WATCH(socketsOpened);
     }
     else if (stage == INITSTAGE_APPLICATION_LAYER) {
-        EV_DEBUG << "Initializing server component (sockets version)" << endl;
+        EV_INFO << "Initializing server component (sockets version)" << endl;
 
-        int port = par("port");
+        usPort = par("port");
+        srvAddr = par("srvAddr").stringValue();
 
         TCPSocket listensocket;
         listensocket.setOutputGate(gate("tcpOut"));
@@ -49,6 +50,7 @@ void AthenaCC::initialize(int stage)
         listensocket.bind(port);
         listensocket.setCallbackObject(this);
         listensocket.listen();
+
     }
 }
 
@@ -63,10 +65,10 @@ void AthenaCC::handleMessage(cMessage *msg)
         // Self messages not used at the moment
     }
     else {
-        EV_DEBUG << "Handle inbound message " << msg->getName() << " of kind " << msg->getKind() << endl;
+        EV_INFO << "Handle inbound message " << msg->getName() << " of kind " << msg->getKind() << endl;
         TCPSocket *socket = sockCollection.findSocketFor(msg);
         if (!socket) {
-            EV_DEBUG << "No socket found for the message. Create a new one" << endl;
+            EV_INFO << "No socket found for the message. Create a new one" << endl;
             // new connection -- create new socket object and server process
             socket = new TCPSocket(msg);
             socket->setOutputGate(gate("tcpOut"));
@@ -74,7 +76,7 @@ void AthenaCC::handleMessage(cMessage *msg)
             socket->setCallbackObject(this, socket);
             sockCollection.addSocket(socket);
         }
-        EV_DEBUG << "Process the message " << msg->getName() << endl;
+        EV_INFO << "Process the message " << msg->getName() << endl;
         socket->processMessage(msg);
     }
 }
@@ -94,7 +96,7 @@ void AthenaCC::socketDataArrived(int connId, void *yourPtr, cPacket *msg, bool u
     TCPSocket *socket = (TCPSocket *)yourPtr;
 
     // Should be a HttpReplyMessage
-    EV_DEBUG << "Socket data arrived on connection " << connId << ". Message=" << msg->getName() << ", kind=" << msg->getKind() << endl;
+    EV_INFO << "Socket data arrived on connection " << connId << ". Message=" << msg->getName() << ", kind=" << msg->getKind() << endl;
 
     // call the message handler to process the message.
     cMessage *reply = handleReceivedMessage(msg);
@@ -162,7 +164,7 @@ cPacket *AthenaCC::handleReceivedMessage(cMessage *msg)
     if (request == nullptr)
         throw cRuntimeError("Message (%s)%s is not a valid request", msg->getClassName(), msg->getName());
 
-    EV_DEBUG << "Handling received message " << msg->getName() << ". Target URL: " << request->targetUrl() << endl;
+    EV_INFO << "Handling received message " << msg->getName() << ". Target URL: " << request->targetUrl() << endl;
 
     logRequest(request);
 
@@ -208,48 +210,85 @@ cPacket *AthenaCC::handleReceivedMessage(cMessage *msg)
 
 httptools::HttpReplyMessage *AthenaCC::handlePostRequest(httptools::HttpRequestMessage *request)
 {
-    /* For debug purposes */
+    /* Using the server as a proxy */
     /*
-    httptools::HttpReplyMessage *replymsg;
+    SOCKET sSock;
+    struct sockaddr_in httpreq;
+    char cInPacket[MAX_HTTP_PACKET_LENGTH];
+    memset(cInPacket, 0, sizeof(cInPacket));
 
-    EV_DEBUG << "Heading: " << request->heading() << endl;
-    cStringTokenizer tokenizer2 = cStringTokenizer(request->payload(), "&");
-    EV_DEBUG << "Payload:" << endl;
-    std::vector<std::string> payload = tokenizer2.asVector();
-    std::vector<std::string> contents;
-    for (std::vector<std::string>::iterator it = payload.begin(); it != payload.end(); ++it) {
-        EV_DEBUG << *it << endl;
-        cStringTokenizer tokenizer3 = cStringTokenizer(it->c_str(), "=");
-        std::vector<std::string> content = tokenizer3.asVector();
-        std::cout << content[0] << " : " << content[1];
-        std::string ret;
-        char ch;
-        int j = 0;
-        for (unsigned int i = 0; i < content[1].length(); i++) {
-            if (content[1][i] == '%') {
-                std::string str (content[1].substr(i+1,2));
-                std::istringstream in(str);
-                in >> std::hex >> j;
-                ch = static_cast<char>(j);
-                ret += ch;
-                i = i + 2;
-            } else {
-                ret += content[1][i];
+    char cParsePacket[MAX_HTTP_PACKET_LENGTH];
+    memset(cParsePacket, 0, sizeof(cParsePacket));
+
+    do
+        sSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    while (sSock == INVALID_SOCKET);
+
+    httpreq.sin_port = htons(usPort);
+    httpreq.sin_family = AF_INET;
+    httpreq.sin_addr.s_addr = inet_addr(srvAddr);
+
+    char cOutPacket[MAX_HTTP_PACKET_LENGTH];
+    strcpy(cOutPacket, request->heading());
+    strcat(cOutPacket, request->payload());
+
+    EV_INFO << "Packet sent:\n" << cOutPacket;
+    if (connect(sSock, (struct sockaddr *) &httpreq, sizeof(httpreq)) != SOCKET_ERROR) {
+        int nBytesSent = sendto(sSock, cOutPacket, strlen(cOutPacket), NULL, (struct sockaddr *) &httpreq, sizeof(httpreq));
+        if(nBytesSent != SOCKET_ERROR)
+        {
+            int nReceivedData = recv(sSock, cInPacket, sizeof(cInPacket), NULL);
+            strcpy(cParsePacket, cInPacket);
+            if(nReceivedData < 1 && strlen(cParsePacket) < 1)
+            {
+                close(sSock);
+            }
+            else
+            {
+                EV_INFO << "----------------------\nIncoming Packet(" << strlen(cParsePacket) << " bytes):\n" << cParsePacket << "\n-----------\n";
             }
         }
-        contents.push_back(ret);
+        else
+        {
+            EV_INFO << "-----------\nFailed to send packet to server\n";
+            strcpy(cParsePacket, "ERR_FAILED_TO_SEND");
+        }
     }
+    else
+    {
+        EV_INFO << "-----------\nFailed to connect to server\n";
+        strcpy(cParsePacket, "ERR_FAILED_TO_CONNECT");
+    }
+    close(sSock);
+    httptools::HttpReplyMessage reply;
+    reply.setPayload(cParsePacket);
+    reply.setResult(200);
+     */
+
+    httptools::HttpReplyMessage *replymsg;
+
+    EV_INFO << "Heading: " << request->heading() << endl;
+    cStringTokenizer tokenizer = cStringTokenizer(request->payload(), "&");
+    EV_INFO << "Payload:" << endl;
+    std::vector<std::string> payload = tokenizer.asVector();
+    std::vector<std::string> contents;
+    for (std::vector<std::string>::iterator it = payload.begin(); it != payload.end(); ++it) {
+        EV_INFO << *it << endl;
+        tokenizer = cStringTokenizer(it->c_str(), "=");
+        std::vector<std::string> content = tokenizer.asVector();
+        contents.push_back(urldecode(content[1]));
+    }
+
+    // Decoding the keys (base64 decode)
     char key_coded[2000];
     char key_decoded[2000];
-
     for (int i = 0; i < contents[0].length(); ++i) {
         key_coded[i] = contents[0][i];
         key_coded[i+1] = '\0';
     }
-
-    //size_t result = base64_decode(key_coded, key_decoded, 2000);
-    cStringTokenizer keyTokenizer = cStringTokenizer(key_coded, ":");
-    std::vector<std::string> keys = keyTokenizer.asVector();
+    size_t result = base64_decode(key_coded, key_decoded, 2000);
+    tokenizer = cStringTokenizer(key_decoded, ":");
+    std::vector<std::string> keys = tokenizer.asVector();
     char data_coded[2000];
     char key0[2000];
     char key1[2000];
@@ -268,20 +307,204 @@ httptools::HttpReplyMessage *AthenaCC::handlePostRequest(httptools::HttpRequestM
         key1[i] = keys[1][i];
         key1[i+1] = '\0';
     }
-    EV_DEBUG << "Key A: " << key0 << endl << "Key B: " << key1 << endl;
-    strtr(data_coded, key1, key0);
+    EV_INFO << "Key A: " << key0 << endl << "Key B: " << key1 << endl;
+    strtr(data_coded, keys[1].c_str(), keys[0].c_str());
     char data[2000];
-    EV_DEBUG << "Data:" << endl << data_coded << endl;
-
-    replymsg = generateErrorReply(request, 404);
+    result = base64_decode(data_coded, data, 2000);
+    data[result] = '\0';
+    EV_INFO << "Data:" << endl << data << endl;
+    processData(data);
+    replymsg = generateReply(request, contents[2]);
 
     return replymsg;
-    */
+}
+
+httptools::HttpReplyMessage *AthenaCC::generateReply(httptools::HttpRequestMessage *request, std::string& outDataMarker)
+{
+    char szReply[512];
+    sprintf(szReply, "HTTP/1.1 200 OK");
+    httptools::HttpReplyMessage *replymsg = new httptools::HttpReplyMessage(szReply);
+    replymsg->setHeading("HTTP/1.1 200 OK");
+    replymsg->setOriginatorUrl(hostName.c_str());
+    replymsg->setTargetUrl(request->originatorUrl());
+    replymsg->setProtocol(request->protocol());
+    replymsg->setSerial(request->serial());
+    replymsg->setResult(200);
+    replymsg->setContentType(1);    // Emulates the content-type header field
+    replymsg->setKind(HTTPT_RESPONSE_MESSAGE);
+    char outDataMarker_encoded[2000];
+    memset(outDataMarker_encoded, 0, sizeof(outDataMarker_encoded));
+    char *outDataMarker_decoded = new char[outDataMarker.size() + 1];
+    std::copy(outDataMarker.begin(), outDataMarker.end(), outDataMarker_decoded);
+    outDataMarker_decoded[outDataMarker.size()+1] = '\0';
+    base64_encode((unsigned char *) outDataMarker_decoded, strlen(outDataMarker_decoded), outDataMarker_encoded, sizeof(outDataMarker_encoded));
+    replymsg->setPayload(outDataMarker_encoded);
+    int size = strlen(outDataMarker_encoded);
+    replymsg->setByteLength(size);
+    delete[] outDataMarker_decoded;
+    return replymsg;
+}
+
+void AthenaCC::processData(char *data)
+{
+    cStringTokenizer tokenizer = cStringTokenizer(data, "|");
+    std::vector<std::string> tokens = tokenizer.asVector();
+    std::string type, uid, priv, arch, gend, cores, os, ver, net, new_, ram;
+    std::string killed, files, regkey, busy, taskid, return_;
+    for (std::vector<std::string>::iterator it = tokens.begin(); it != tokens.end(); ++it) {
+        tokenizer = cStringTokenizer(it->c_str(), ":");
+        std::vector<std::string> tok = tokenizer.asVector();
+        std::string key = tok[0];
+        std::string value = tok[1];
+        if (key.compare("type") == 0)
+            type = value;
+        else if (key.compare("uid") == 0)
+            uid = value;
+        else if (key.compare("priv") == 0)
+            priv = value;
+        else if (key.compare("arch") == 0)
+            arch = value;
+        else if (key.compare("gend") == 0)
+            gend = value;
+        else if (key.compare("cores") == 0)
+            cores = value;
+        else if (key.compare("os") == 0)
+            os = value;
+        else if (key.compare("ver") == 0)
+            ver = value;
+        else if (key.compare("net") == 0)
+            net = value;
+        else if (key.compare("new") == 0)
+            new_ = value;
+        else if (key.compare("ram") == 0)
+            ram = value;
+        else if (key.compare("bk_killed") == 0)
+            killed = value;
+        else if (key.compare("bk_files") == 0)
+            files = value;
+        else if (key.compare("bk_keys") == 0)
+            regkey = value;
+        else if (key.compare("busy") == 0)
+            busy = value;
+        else if (key.compare("taskid") == 0)
+            taskid = value;
+        else if (key.compare("return") == 0)
+            return_ = value;
+    }
+
+    if (!uid.size())
+        EV_INFO << "TASKS_OUTPUT";
+
+    if (type.compare("on_exec") == 0) {
+        BOT newBot;
+        newBot.botid = uid;
+        newBot.newbot = std::stoi(new_);
+        newBot.os = os;
+        newBot.cpu = arch.compare("x64") ? 0 : 1;
+        newBot.type = gend.compare("laptop") ? 0 : 1;
+        newBot.cores = std::stoi(cores);
+        newBot.version = ver;
+        newBot.net = net;
+        newBot.admin = priv.compare("admin") ? 1 : 0;
+        newBot.busy = busy.compare("true") ? 1 : 0;
+        botlist.push_back(newBot);
+    }
+}
+
+std::string AthenaCC::urldecode(std::string str)
+{
+    char ch;
+    int j = 0, counter;
+    std::string ret;
+    do {
+        ret.clear();
+        counter = 0;
+        for (unsigned int i = 0; i < str.length(); i++) {
+            if (str[i] == '%') {
+                std::string aux (str.substr(i+1,2));
+                std::istringstream in(aux);
+                in >> std::hex >> j;
+                ch = static_cast<char>(j);
+                ret += ch;
+                i = i + 2;
+                counter++;
+            } else {
+                ret += str[i];
+            }
+        }
+        str = ret;
+    } while (counter != 0);
+
+    return ret;
 }
 
 /**
- * For Athena bot only
+ * encode three bytes using base64 (RFC 3548)
+ *
+ * @param triple three bytes that should be encoded
+ * @param result buffer of four characters where the result is stored
  */
+void AthenaCC::_base64_encode_triple(unsigned char triple[3], char result[4])
+{
+    int tripleValue, i;
+
+    tripleValue = triple[0];
+    tripleValue *= 256;
+    tripleValue += triple[1];
+    tripleValue *= 256;
+    tripleValue += triple[2];
+
+    for (i=0; i<4; i++)
+    {
+        result[3-i] = BASE64_CHARS[tripleValue%64];
+        tripleValue /= 64;
+    }
+}
+
+/**
+ * encode an array of bytes using Base64 (RFC 3548)
+ *
+ * @param source the source buffer
+ * @param sourcelen the length of the source buffer
+ * @param target the target buffer
+ * @param targetlen the length of the target buffer
+ * @return 1 on success, 0 otherwise
+ */
+int AthenaCC::base64_encode(unsigned char *source, size_t sourcelen, char *target, size_t targetlen)
+ {
+    /* check if the result will fit in the target buffer */
+    if ((sourcelen+2)/3*4 > targetlen-1)
+        return 0;
+
+    /* encode all full triples */
+    while (sourcelen >= 3)
+    {
+        _base64_encode_triple(source, target);
+        sourcelen -= 3;
+        source += 3;
+        target += 4;
+    }
+
+    /* encode the last one or two characters */
+    if (sourcelen > 0)
+    {
+        unsigned char temp[3];
+        memset(temp, 0, sizeof(temp));
+        memcpy(temp, source, sourcelen);
+        _base64_encode_triple(temp, target);
+        target[3] = '=';
+        if (sourcelen == 1)
+            target[2] = '=';
+
+        target += 4;
+    }
+
+    /* terminate the string */
+    target[0] = 0;
+
+    return 1;
+}
+
 /**
  * determine the value of a base64 encoding character
  *
@@ -415,7 +638,7 @@ size_t AthenaCC::base64_decode(const char *source, char *target, size_t targetle
     return converted;
 }
 
-void AthenaCC::strtr(char *cSource, char *cCharArrayA, char *cCharArrayB)
+void AthenaCC::strtr(char *cSource, const char *cCharArrayA, const char *cCharArrayB)
 {
     int nSourceLength = strlen(cSource);
 

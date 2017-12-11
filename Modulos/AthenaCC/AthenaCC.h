@@ -19,25 +19,50 @@
 #include "inet/applications/httptools/server/HttpServerBase.h"
 #include "inet/transportlayer/contract/tcp/TCPSocket.h"
 #include "inet/transportlayer/contract/tcp/TCPSocketMap.h"
+#include <arpa/inet.h>
+#include <vector>
+#include <string>
+
+#include <omnetpp/platdep/sockets.h>
 
 namespace inet {
 
 //namespace athena{
 
-// Criar uma fila de requisições (talvez nem seja necessário)
-// Primeiro evento que vem de fora -> requisição
+//Max HTTP Packet Stuff
+#define MAX_HTTP_PACKET_LENGTH          5000
 
 class AthenaCC : public httptools::HttpServerBase, public TCPSocket::CallbackInterface {
 private:
     char recvBuffer[4000];
     int numRecvBytes;
 
-    int addr;
-    int srvAddr;
-
-    std::queue<httptools::HttpRequestMessage> requestsWaiting;
-
+    const char *srvAddr;
+    int usPort;
 protected:
+    typedef struct {
+        std::string botid;
+        int newbot;
+        std::string country;
+        std::string country_code;
+        std::string ip;
+        std::string os;
+        int cpu;
+        int type;
+        int cores;
+        std::string version;
+        std::string net;
+        int botskilled;
+        int files;
+        int regkey;
+        int admin;
+        int ram;
+        int busy;
+        int lastseen;
+    } BOT;
+
+    std::vector<BOT> botlist;
+
     TCPSocket listensocket;
     TCPSocketMap sockCollection;
     unsigned long numBroken = 0;
@@ -58,13 +83,16 @@ protected:
 
     httptools::HttpReplyMessage *handlePostRequest(httptools::HttpRequestMessage *request);
 
-    /**
-     * For Athena bot only
-     */
+    void processData(char *str);
+    httptools::HttpReplyMessage *generateReply(httptools::HttpRequestMessage *request, std::string &outDataMarker);
+    std::string urldecode(std::string str);
+    const char *BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    void _base64_encode_triple(unsigned char triple[3], char result[4]);
+    int base64_encode(unsigned char *source, size_t sourcelen, char *target, size_t targetlen);
     int _base64_char_value(char base64char);
     int _base64_decode_triple(char quadruple[4], unsigned char *result);
     size_t base64_decode(const char *source, char *target, size_t targetlen);
-    void strtr(char *cSource, char *cCharArrayA, char *cCharArrayB);
+    void strtr(char *cSource, const char *cCharArrayA, const char *cCharArrayB);
 public:
     AthenaCC();
     virtual ~AthenaCC();
