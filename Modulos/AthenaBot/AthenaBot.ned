@@ -106,10 +106,7 @@ import inet.applications.contract.ITCPApp;
 //
 simple AthenaBot like ITCPApp
 {
-    parameters:
-        string connectAddress;
-        int connectPort = default(1000);
-        
+    parameters:        
         int httpProtocol = default(11);                 // The http protocol: 10 for http/1.0, 11 for http/1.1. Not used at the present time.
         string logFile = default("");                   // Name of a browser log file. Browse events are appended, allowing sharing of file for multiple browsers.
         string scriptFile = default("");                // The browsing script file. Blank to disable.
@@ -118,6 +115,7 @@ simple AthenaBot like ITCPApp
         string httpBrowserControllerModule = default("controller"); // the absolute path to the http browser controller, @see HttpController
         bool infected = default(true);
         double botActivationTime @unit("s") = default(0.1s);
+        string serverName = default("");
     gates:
         input tcpIn;
         output tcpOut;

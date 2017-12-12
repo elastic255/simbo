@@ -42,7 +42,7 @@ void AthenaCC::initialize(int stage)
         EV_INFO << "Initializing server component (sockets version)" << endl;
 
         usPort = par("port");
-        srvAddr = par("srvAddr").stringValue();
+        //srvAddr = par("srvAddr").stringValue();
 
         TCPSocket listensocket;
         listensocket.setOutputGate(gate("tcpOut"));
@@ -280,40 +280,33 @@ httptools::HttpReplyMessage *AthenaCC::handlePostRequest(httptools::HttpRequestM
     }
 
     // Decoding the keys (base64 decode)
-    char key_coded[2000];
-    char key_decoded[2000];
-    for (int i = 0; i < contents[0].length(); ++i) {
-        key_coded[i] = contents[0][i];
-        key_coded[i+1] = '\0';
+    int keys_size = contents[0].size();
+    char coded_keys[keys_size+1];
+    char decoded_keys[keys_size+1];
+    memset(decoded_keys, 0, sizeof(decoded_keys));
+    for (int i = 0; i < keys_size; ++i) {
+        coded_keys[i] = contents[0][i];
+        coded_keys[i+1] = '\0';
     }
-    size_t result = base64_decode(key_coded, key_decoded, 2000);
-    tokenizer = cStringTokenizer(key_decoded, ":");
+    size_t result = base64_decode(coded_keys, decoded_keys, keys_size+1);
+    tokenizer = cStringTokenizer(decoded_keys, ":");
     std::vector<std::string> keys = tokenizer.asVector();
-    char data_coded[2000];
-    char key0[2000];
-    char key1[2000];
 
-    for (int i = 0; i < contents[1].length(); ++i) {
-        data_coded[i] = contents[1][i];
-        data_coded[i+1] = '\0';
+    // Decoding data (base64 decode)
+    int n = contents[1].size();
+    char coded_data[n+1];
+    char decoded_data[n+1];
+    memset(decoded_data, 0, sizeof(decoded_data));
+    for (int i = 0; i < n; ++i) {
+        coded_data[i] = contents[1][i];
+        coded_data[i+1] = '\0';
     }
+    strtr(coded_data, keys[1].c_str(), keys[0].c_str());
 
-    for (int i = 0; i < keys[0].length(); ++i) {
-        key0[i] = keys[0][i];
-        key0[i+1] = '\0';
-    }
-
-    for (int i = 0; i < keys[1].length(); ++i) {
-        key1[i] = keys[1][i];
-        key1[i+1] = '\0';
-    }
-    EV_INFO << "Key A: " << key0 << endl << "Key B: " << key1 << endl;
-    strtr(data_coded, keys[1].c_str(), keys[0].c_str());
-    char data[2000];
-    result = base64_decode(data_coded, data, 2000);
-    data[result] = '\0';
-    EV_INFO << "Data:" << endl << data << endl;
-    processData(data);
+    EV_INFO << "Key A: " << keys[0] << endl << "Key B: " << keys[1] << endl;
+    result = base64_decode(coded_data, decoded_data, n+1);
+    EV_INFO << "Data:" << endl << decoded_data << endl;
+    processData(decoded_data);
     replymsg = generateReply(request, contents[2]);
 
     return replymsg;
@@ -590,8 +583,8 @@ size_t AthenaCC::base64_decode(const char *source, char *target, size_t targetle
 {
     char *src, *tmpptr;
     char quadruple[4], tmpresult[3];
-    int i, tmplen = 3;
-    size_t converted = 0;
+    int i;
+    size_t tmplen = 3, converted = 0;
 
     /* concatenate '===' to the source to handle unpadded base64 data */
     //src = (char *)HeapAlloc(GetProcessHeap(), 0, strlen(source)+5);

@@ -110,7 +110,6 @@ simple AthenaCC like ITCPApp
         string siteDefinition = default("");            // The site script file. Blank to disable.
         double activationTime @unit("s") = default(0s); // The initial activation delay. Zero to disable.
         xml config;                                     // The XML configuration file for random sites
-        string srvAddr = default("");
     gates:
         input tcpIn;
         output tcpOut;

@@ -32,6 +32,8 @@ namespace inet {
 
 #define MSGKIND_ACTIVITY_BOT_START 4
 #define MSGKIND_BOT_START_SESSION  5
+#define MSGKIND_BOT_REPEAT_SESSION 6
+#define MSGKIND_BOT_RESPONSE_SESSION 7
 
 #define DEFAULT  1000
 #define MAX_PATH 260 // WinAPI max length
@@ -73,7 +75,7 @@ protected:
 
     /* <------------ Variables Section ------------> */
     // OMNeT++ Related
-    cMessage *newMessage = nullptr;
+    cMessage *botMessage = nullptr;
 
     // Bot status
     bool isInfected;
@@ -175,7 +177,8 @@ protected:
 
     //Config
     char            cVersion[DEFAULT];
-    char            cServer[DEFAULT];
+    //char            cServer[DEFAULT];
+    const char *cServer;
     char            cBackup[DEFAULT];
     char            cServers[10][MAX_PATH];
     unsigned short  usPort;
@@ -306,14 +309,17 @@ protected:
      * virtual method of the parent class. The counter for pending replies is decremented for each one handled.
      * Close is called on the socket once the counter reaches zero.
      */
-    //virtual void socketDataArrived(int connId, void *yourPtr, cPacket *msg, bool urgent) override;
+    virtual void socketDataArrived(int connId, void *yourPtr, cPacket *msg, bool urgent) override;
 
     // OMNeT++ events
     virtual void handleMessage(cMessage *msg) override;
+    void handleDataMessage(cMessage *msg);
     void handleSelfMessages(cMessage *msg);
     void handleSelfActivityBotStart();
     void handleSelfBotStartSession();
-    //void scheduleNextBotEvent(int);
+    void handleSelfBotRepeatSession();
+    void handleSelfBotResponseSession();
+    void scheduleNextBotEvent(int);
 
     // Bot functions
     int ConnectToHttp();
@@ -342,6 +348,7 @@ protected:
     bool IsLaptop();
     char *GetVersionMicrosoftDotNetVersion();
     DWORD GetNumCPUs();
+    DWORD GetMemoryLoad();
 
     /*
      * Encryption/Base64_.cpp
