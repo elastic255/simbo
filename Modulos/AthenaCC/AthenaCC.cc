@@ -17,14 +17,19 @@
 
 namespace inet {
 
+namespace simbo {
+
 Define_Module(AthenaCC);
 
 //namespace athena {
 
 AthenaCC::AthenaCC() {
+    on_exec_requests = 0;
+    repeat_requests = 0;
 }
 
 AthenaCC::~AthenaCC() {
+
 }
 
 void AthenaCC::initialize(int stage)
@@ -42,7 +47,6 @@ void AthenaCC::initialize(int stage)
         EV_INFO << "Initializing server component (sockets version)" << endl;
 
         usPort = par("port");
-        //srvAddr = par("srvAddr").stringValue();
 
         TCPSocket listensocket;
         listensocket.setOutputGate(gate("tcpOut"));
@@ -57,6 +61,18 @@ void AthenaCC::initialize(int stage)
 void AthenaCC::finish()
 {
     HttpServerBase::finish();
+
+    EV_INFO << "on_exec requests received: " << on_exec_requests << endl;
+    EV_INFO << "repeat requests received: " << repeat_requests << endl;
+    EV_INFO << "Bots information: " << endl;
+    EV_INFO << "|botid|newbot|country|country_code|ip|os|cpu|type|cores|version|net|botskilled|files|regkey|admin|ram|busy|lastseen|" << endl;
+    for (std::vector<BOT>::iterator it = botlist.begin(); it != botlist.end(); ++it) {
+        EV_INFO << "|" << it->botid << "|" << it->newbot << "|" << it->country << "|";
+        EV_INFO << it->country_code << "|" << it->ip << "|" << it->os << "|" << it->cpu << "|";
+        EV_INFO << it->type << "|" << it->cores << "|" << it->version << "|" << it->net << "|";
+        EV_INFO << it->botskilled << "|" << it->files << "|" << it->regkey << "|" << it->admin << "|";
+        EV_INFO << it->ram << "|" << it->busy << "|" << it->lastseen << "|" << endl;
+    }
 }
 
 void AthenaCC::handleMessage(cMessage *msg)
@@ -349,8 +365,13 @@ void AthenaCC::processData(char *data)
         std::vector<std::string> tok = tokenizer.asVector();
         std::string key = tok[0];
         std::string value = tok[1];
-        if (key.compare("type") == 0)
+        if (key.compare("type") == 0) {
             type = value;
+            if (value.compare("on_exec") == 0)
+                on_exec_requests++;
+            else if (value.compare("repeat") == 0)
+                repeat_requests++;
+        }
         else if (key.compare("uid") == 0)
             uid = value;
         else if (key.compare("priv") == 0)
@@ -656,6 +677,6 @@ void AthenaCC::strtr(char *cSource, const char *cCharArrayA, const char *cCharAr
     }
 }
 
-//} /* namespace athena */
+} /* namespace simbo */
 
 } /* namespace inet */

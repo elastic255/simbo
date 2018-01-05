@@ -17,9 +17,11 @@
 #define INET_APPLICATIONS_SIMBO_MODULOS_ATHENABOT_ATHENABOT_H_
 
 #include "inet/common/INETDefs.h"
+#include "inet/applications/httptools/browser/HttpBrowserBase.h"
+#include "inet/applications/httptools/browser/HttpBrowser.h"
 #include "inet/applications/httptools/common/HttpMessages_m.h"
+#include "inet/applications/httptools/common/HttpRandom.h"
 #include "inet/applications/simbo/Modulos/HTTPModule/HTTPModule.h"
-#include "inet/applications/simbo/Modulos/GenericBot/GenericBot.h"
 #include <random>
 #include <limits>
 #include <cstring>
@@ -27,7 +29,7 @@
 
 namespace inet {
 
-namespace simbo {
+//namespace athena{
 
 #define MSGKIND_ACTIVITY_BOT_START 4
 #define MSGKIND_BOT_START_SESSION  5
@@ -50,10 +52,13 @@ namespace simbo {
 //Max HTTP Packet Stuff
 #define MAX_HTTP_PACKET_LENGTH          5000
 
-class INET_API AthenaBot : public GenericBot
-{
+class AthenaBot : public httptools::HttpBrowser {
 protected:
     /* <------------- Defines Section -------------> */
+    struct in_addr {
+        unsigned long s_addr;  // load with inet_aton()
+    };
+
     enum msg_type {on_exec, repeat, response};
     typedef unsigned int DWORD; // WinAPI 32 bits unsigned integer
     typedef struct _GUID {
@@ -62,10 +67,20 @@ protected:
       unsigned short Data3;
       unsigned char  Data4[8];
     } GUID, UUID;
+    typedef struct sockaddr_in {
+      short            sin_family;   // e.g. AF_INET
+      unsigned short   sin_port;     // e.g. htons(3490)
+      struct in_addr   sin_addr;     // see struct in_addr, below
+      char             sin_zero[8];  // zero this if you want to
+    } SOCKADDR_IN, *PSOCKADDR_IN;
 
     /* <------------ Variables Section ------------> */
     // OMNeT++ Related
-    int pingTime;
+    cMessage *botMessage = nullptr;
+    httptools::HttpBrowser *node;
+
+    // Bot status
+    bool isInfected;
 
     // Bot global variables
 
@@ -203,6 +218,7 @@ protected:
     int             nUninstallTaskId;
     char            cHttpHostGlobal[MAX_PATH];
     char            cHttpPathGlobal[MAX_PATH];
+    SOCKADDR_IN     httpreq;
 
     //Flood related
     bool            bDdosBusy;
@@ -279,10 +295,23 @@ protected:
 
     int nExpirationDateMedian;
 
+    // Random variables
+    httptools::rdObject *rdBotActivityLength = nullptr;
+    httptools::rdObject *rdBotInterSessionInterval = nullptr;
+    httptools::rdObject *rdBotReqInSession = nullptr;
+
     /* <-------------------------------------------> */
 
     /* <------------- Methods Section -------------> */
     virtual void initialize(int stage) override;
+    // TCP Callback
+    /*
+     * Handler for socket data arrival.
+     * Called by the socket->processMessage(msg) handler call in handleMessage.
+     * virtual method of the parent class. The counter for pending replies is decremented for each one handled.
+     * Close is called on the socket once the counter reaches zero.
+     */
+    virtual void socketDataArrived(int connId, void *yourPtr, cPacket *msg, bool urgent) override;
 
     // OMNeT++ events
     virtual void handleMessage(cMessage *msg) override;
@@ -339,7 +368,7 @@ protected:
     /*
      * Hub/HttpUtilities.cpp
      */
-    bool SendPanelRequest(char *cHttpHost, char *cHttpPath, unsigned short usHttpPort, char *cHttpData);
+    bool SendPanelRequest(SOCKADDR_IN httpreq, char *cHttpHost, char *cHttpPath, unsigned short usHttpPort, char *cHttpData);
     void EncryptSentData(char *cSource, char *cOutputData, char *cOutputEncryptedKey, char *cOutputRawKeyA, char *cOutputRawKeyB);
     int GeneratestrtrKey(char *cOutputA, char *cOutputB);
     void StringToStrongUrlEncodedString(char *cSource, char *cOutput);
@@ -365,9 +394,9 @@ protected:
 public:
     AthenaBot();
     virtual ~AthenaBot();
+    void sendRequestToRandomServer() override;
 };
-
-} /* namespace simbo */
+//} /* namespace athena */
 
 } /* namespace inet */
 

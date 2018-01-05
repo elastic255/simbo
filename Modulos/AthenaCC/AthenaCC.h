@@ -27,7 +27,7 @@
 
 namespace inet {
 
-//namespace athena{
+namespace simbo {
 
 //Max HTTP Packet Stuff
 #define MAX_HTTP_PACKET_LENGTH          5000
@@ -63,6 +63,9 @@ protected:
 
     std::vector<BOT> botlist;
 
+
+    int on_exec_requests;
+    int repeat_requests;
     TCPSocket listensocket;
     TCPSocketMap sockCollection;
     unsigned long numBroken = 0;
@@ -98,7 +101,7 @@ public:
     virtual ~AthenaCC();
 };
 
-//} /* namespace athena */
+} /* namespace simbo */
 
 } /* namespace inet */
 

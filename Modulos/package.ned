@@ -13,20 +13,6 @@
 // along with this program.  If not, see http://www.gnu.org/licenses/.
 // 
 
-package inet.applications.simbo.Modulos.AthenaBot;
+package inet.applications.simbo.Modulos;
 
-import inet.applications.contract.ITCPApp;
-
-simple AthenaBot like ITCPApp
-{
-    parameters:        
-        bool infected = default(true);
-        double botActivationTime @unit("s") = default(1s);
-        double botPingTime @unit("s") = default(60s);
-        string serverName = default("");
-        string botProtocol = default("http");
-        string dosModule = default("yes");
-    gates:
-        input tcpIn;
-        output tcpOut;
-}
+@namespace(inet::simbo);
