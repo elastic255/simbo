@@ -21,7 +21,9 @@ namespace simbo {
 
 GenericBot::GenericBot()
 {
-    // TODO Auto-generated constructor stub
+    downloadModule = nullptr;
+    dosModule = nullptr;
+    httpModule = nullptr;
 }
 
 GenericBot::~GenericBot()
@@ -35,8 +37,6 @@ void GenericBot::initialize(int stage)
     if (stage == INITSTAGE_LOCAL) {
         infectedHost = par("infected").boolValue();
         botProtocol = strcmp(par("botProtocol").stringValue(), "http") ? irc : http;
-        httpModule = this->getParentModule()->getSubmodule("HTTPModule");
-        dosModule = strcmp(par("dosModule").stringValue(), "yes") ? nullptr : this->getParentModule()->getSubmodule("DoSModule", 2);
         botMessage = new cMessage("Bot Message");
     }
 }
@@ -46,6 +46,30 @@ bool GenericBot::handleOperationStage(LifecycleOperation *operation, int stage, 
     Enter_Method_Silent();
     throw cRuntimeError("Unsupported lifecycle operation '%s'", operation->getClassName());
     return true;
+}
+
+cModule *GenericBot::addModule(const char *name, const char *type, bool isITCPApp)
+{
+    cModuleType *moduleType = cModuleType::get(type);
+    cModule *module = moduleType->createScheduleInit(name, this->getParentModule());
+
+    if (isITCPApp) {
+        cModule *tcp = this->getParentModule()->getSubmodule("tcp");
+
+        if (tcp != nullptr) {
+            int gateSize = tcp->gateSize("appIn");
+
+            tcp->setGateSize("appIn", gateSize+1);
+            tcp->setGateSize("appOut", gateSize+1);
+            cGate *tcpIn = tcp->gate("appIn", gateSize);
+            cGate *tcpOut = tcp->gate("appOut", gateSize);
+            cGate *gateIn = module->gate("tcpIn");
+            cGate *gateOut = module->gate("tcpOut");
+            gateOut->connectTo(tcpIn);
+            tcpOut->connectTo(gateIn);
+        }
+    }
+    return module;
 }
 
 } /* namespace simbo */

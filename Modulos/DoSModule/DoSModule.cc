@@ -76,8 +76,11 @@ void DoSModule::handleSelfNextMessage()
 
 void DoSModule::activateModule(std::string target)
 {
+    Enter_Method_Silent();
+    if (eventTimer->isScheduled()) return;
     this->target = target;
     eventTimer->setKind(MSGKIND_ACTIVITY_START);
+    scheduleAt(simTime() + (simtime_t) 1, eventTimer);
 }
 
 void DoSModule::desactivateModule()

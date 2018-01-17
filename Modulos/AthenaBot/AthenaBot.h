@@ -18,21 +18,27 @@
 
 #include "inet/common/INETDefs.h"
 #include "inet/applications/httptools/common/HttpMessages_m.h"
-#include "inet/applications/simbo/Modulos/HTTPModule/HTTPModule.h"
 #include "inet/applications/simbo/Modulos/GenericBot/GenericBot.h"
 #include <random>
 #include <limits>
 #include <cstring>
 #include <cstdlib>
+#include <map>
 
 namespace inet {
 
 namespace simbo {
 
+// BOT ACTIVITIES
 #define MSGKIND_ACTIVITY_BOT_START 4
 #define MSGKIND_BOT_START_SESSION  5
 #define MSGKIND_BOT_REPEAT_SESSION 6
 #define MSGKIND_BOT_RESPONSE_SESSION 7
+
+// BOT COMMANDS EVENT
+#define DDOS_EVENT      0x10
+#define UNINSTALL_EVENT 0x11
+#define DL_EXEC_EVENT   0x12
 
 #define DEFAULT  1000
 #define MAX_PATH 260 // WinAPI max length
@@ -46,13 +52,14 @@ namespace simbo {
 #define WINDOWS_VISTA                   5
 #define WINDOWS_7                       6
 #define WINDOWS_8                       7
+#define LINUX                           8
 
 //Max HTTP Packet Stuff
 #define MAX_HTTP_PACKET_LENGTH          5000
 
 class INET_API AthenaBot : public GenericBot
 {
-protected:
+private:
     /* <------------- Defines Section -------------> */
     enum msg_type {on_exec, repeat, response};
     typedef unsigned int DWORD; // WinAPI 32 bits unsigned integer
@@ -63,9 +70,30 @@ protected:
       unsigned char  Data4[8];
     } GUID, UUID;
 
+    typedef std::map<std::string, int> OSMap;
+    static OSMap OS_map;
+
     /* <------------ Variables Section ------------> */
     // OMNeT++ Related
     int pingTime;
+    // Event messages - download and execute, uninstall, ddos
+    cMessage *dlExec;
+    cMessage *uninstall;
+    cMessage *ddos;
+    cModule *httpModule_dl;
+
+    // Host info
+    bool isAdmin;
+    bool is64Bits;
+    bool isLaptop;
+    const char *dotNetVersion;
+    int numCPUS;
+
+    // Marker and keys
+    char cMarker[26];
+    char cMarkerBase64[sizeof(cMarker) * 3];
+    char cKeyA[KEY_SIZE];
+    char cKeyB[KEY_SIZE];
 
     // Bot global variables
 
@@ -133,6 +161,8 @@ protected:
     bool            bGlobalOnlyOutputMd5Hash;
     bool            bMd5MustMatch;
     char            szMd5Match[DEFAULT];
+    char *          urlDownload;
+    char *          fileDownload;
 
     //Browser related
     char            cBrowsers[5][DEFAULT];
@@ -214,6 +244,7 @@ protected:
     unsigned short  usFloodPort;
     unsigned short  usFloodType;
     bool            bBrowserDdosBusy;
+    char            urlTarget[MAX_PATH];
 
     /*
     //Irc War related
@@ -292,6 +323,9 @@ protected:
     void handleSelfBotStartSession();
     void handleSelfBotRepeatSession();
     void handleSelfBotResponseSession();
+    void handleDlExec();
+    void handleUninstall();
+    void handleDDoS();
     void scheduleNextBotEvent(int);
 
     // Bot functions
@@ -304,14 +338,14 @@ protected:
     void fncUuidToString(UUID *, char *);
     void fncRpcStringFree(char *);
 
-    void StripDashes(char *);
     //HOSTENT *fncgethostbyname(char *);
     char *SimpleDynamicXor(char *pcString, DWORD dwKey);
 
     /**
-     * Hub/IrcUtilities.cpp
+     * Utilities/ProcessStrings.cpp
      */
-    char *GetOs();
+    void StripDashes(char *);
+    char *StripReturns(char *pcString);
 
     /*
      * Utilities/ComputerInfo.cpp
@@ -319,9 +353,19 @@ protected:
     bool IsAdmin();
     bool Is64Bits();
     bool IsLaptop();
-    char *GetVersionMicrosoftDotNetVersion();
+    const char *GetVersionMicrosoftDotNetVersion();
     DWORD GetNumCPUs();
     DWORD GetMemoryLoad();
+
+    /**
+     * General/DlExecUpdate.cpp
+     */
+    void DownloadExecutableFile();
+
+    /**
+     * Hub/IrcUtilities.cpp
+     */
+    char *GetOs();
 
     /*
      * Encryption/Base64_.cpp
@@ -344,6 +388,9 @@ protected:
     int GeneratestrtrKey(char *cOutputA, char *cOutputB);
     void StringToStrongUrlEncodedString(char *cSource, char *cOutput);
     void GenerateMarker(char *cOutput, char *cOutputBase64);
+    void DecryptReceivedData(const char *cSource, char *cKeyA, char *cKeyB, char *cOutputData);
+    bool ParseHttpLine(const char *cMessage);
+
 
     /*
      * Utilities/Misc.cpp
@@ -361,6 +408,15 @@ protected:
      * Utilities/ProcessStrings.cpp
      */
     void strtr(char *cSource, char *cCharArrayA, char *cCharArrayB);
+
+    /*
+     * Protocol/Commands.cpp
+     */
+    bool HasSpaceCharacter(char *pcScanString); //Checks for any existing space characters in a given string
+    char cCharacterPoolOne[99] = "~!@#$%^&*()_+`1234567890-=qwertyuiop[]\\QWERTYUIOP{}|asdfghjkl;\'ASDFGHJKL:\"zxcvbnm,./ZXCVBNM<> ?";
+    char cCharacterPoolTwo[99] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890,./<>?;:\'\"[]\\{}|=-+_)(*&^%$#@!~` ";
+    char *DecryptCommand(char *pcCommand);
+    void ParseCommand(char *pcCommand); //Parses an already-processed raw command
 
 public:
     AthenaBot();

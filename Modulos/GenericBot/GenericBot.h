@@ -19,6 +19,8 @@
 #include "inet/common/INETDefs.h"
 #include "inet/common/lifecycle/ILifecycle.h"
 #include "inet/common/lifecycle/LifecycleOperation.h"
+#include "inet/applications/simbo/Modulos/HTTPModule/HTTPModule.h"
+#include "inet/applications/simbo/Modulos/DoSModule/DoSModule.h"
 
 namespace inet {
 
@@ -28,14 +30,17 @@ class INET_API GenericBot : public cSimpleModule, public ILifecycle
 {
 protected:
     enum Protocol { http, irc } botProtocol;
-    cModule *httpModule;
-    cModule *dosModule;
+    HTTPModule *httpModule;
+    DoSModule *dosModule;
+    HTTPModule *downloadModule;
     bool infectedHost;
     cMessage *botMessage = nullptr;
 
 protected:
     virtual void initialize(int stage) override;
     virtual bool handleOperationStage(LifecycleOperation *operation, int stage, IDoneCallback *doneCallback) override;
+
+    cModule *addModule(const char *name, const char *type, bool isITCPApp = true);
 
 public:
     GenericBot();

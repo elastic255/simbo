@@ -51,6 +51,7 @@ protected:
 
 public:
     bool sendRequestToServer(cModule *sender, std::string url, std::string header, std::string body);
+    void set_name(std::string name);
 
 public:
     HTTPModule();

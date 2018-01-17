@@ -35,6 +35,7 @@ void HTTPModule::initialize(int stage) {
     inet::httptools::HttpBrowser::initialize(stage);
     this->setName("HTTPModule");
     this->cancelEvent(eventTimer);
+    lastSender = nullptr;
 }
 
 /**
@@ -157,6 +158,11 @@ bool HTTPModule::sendRequestToServer(cModule *sender, std::string url, std::stri
 
     this->submitToSocket(szModuleName, connectPort, msg);
     return true;
+}
+
+void HTTPModule::set_name(std::string name)
+{
+    setName(name.c_str());
 }
 
 } /* namespace simbo */

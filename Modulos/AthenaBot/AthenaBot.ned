@@ -26,6 +26,13 @@ simple AthenaBot like ITCPApp
         string serverName = default("");
         string botProtocol = default("http");
         string dosModule = default("yes");
+        string downloadModule = default("yes");
+        bool admin = default(true);
+        bool x64 = default(true);
+        bool laptop = default(false);
+        string dotnet = default("N/A");
+        int CPUs = default(2);
+        string OS = default("Windows XP");
     gates:
         input tcpIn;
         output tcpOut;
