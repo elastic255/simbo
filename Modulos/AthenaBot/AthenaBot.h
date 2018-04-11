@@ -22,12 +22,19 @@
 #include <random>
 #include <limits>
 #include <cstring>
+#include <regex>
+#include <dirent.h>
+//#include <experimental/filesystem>
 #include <cstdlib>
 #include <map>
 
 namespace inet {
 
 namespace simbo {
+
+//
+#define HOST_INFECTED 1
+#define HOST_NOT_INFECTED 0
 
 // BOT ACTIVITIES
 #define MSGKIND_ACTIVITY_BOT_START 4
@@ -36,9 +43,10 @@ namespace simbo {
 #define MSGKIND_BOT_RESPONSE_SESSION 7
 
 // BOT COMMANDS EVENT
-#define DDOS_EVENT      0x10
-#define UNINSTALL_EVENT 0x11
-#define DL_EXEC_EVENT   0x12
+#define DDOS_ACTIVATE_EVENT      0x10
+#define DDOS_DESACTIVATE_EVENT   0x11
+#define UNINSTALL_EVENT          0x12
+#define DL_EXEC_EVENT            0x13
 
 #define DEFAULT  1000
 #define MAX_PATH 260 // WinAPI max length
@@ -70,6 +78,7 @@ private:
       unsigned char  Data4[8];
     } GUID, UUID;
 
+    std::string paths;
     typedef std::map<std::string, int> OSMap;
     static OSMap OS_map;
 
@@ -77,10 +86,12 @@ private:
     // OMNeT++ Related
     int pingTime;
     // Event messages - download and execute, uninstall, ddos
-    cMessage *dlExec;
+    std::map<int, int> commandsMap; // map event msg id to a task id
+    cMessage *currentDlExec;
     cMessage *uninstall;
-    cMessage *ddos;
+    cMessage *currentDdos;
     cModule *httpModule_dl;
+    int dlExecLastMsgId;
 
     // Host info
     bool isAdmin;
@@ -96,6 +107,9 @@ private:
     char cKeyB[KEY_SIZE];
 
     // Bot global variables
+
+    // Return parameters -- response commands
+    char cReturnParameter[5]; // currently, the default response parameter
 
     //Info
     char            cRegistryKeyAccess[5];
@@ -315,6 +329,8 @@ private:
     /* <------------- Methods Section -------------> */
     virtual void initialize(int stage) override;
 
+    void search_reply(std::string p, int line_number, std::string line);
+
     // OMNeT++ events
     virtual void handleMessage(cMessage *msg) override;
     void handleDataMessage(cMessage *msg);
@@ -322,10 +338,11 @@ private:
     void handleSelfActivityBotStart();
     void handleSelfBotStartSession();
     void handleSelfBotRepeatSession();
-    void handleSelfBotResponseSession();
-    void handleDlExec();
+    void handleSelfBotResponseSession(cMessage *msg);
+    void handleDlExec(cMessage *msg);
     void handleUninstall();
-    void handleDDoS();
+    void handleActivateDDoS(cMessage *msg);
+    void handleDesactivateDDoS();
     void scheduleNextBotEvent(int);
 
     // Bot functions
@@ -389,7 +406,7 @@ private:
     void StringToStrongUrlEncodedString(char *cSource, char *cOutput);
     void GenerateMarker(char *cOutput, char *cOutputBase64);
     void DecryptReceivedData(const char *cSource, char *cKeyA, char *cKeyB, char *cOutputData);
-    bool ParseHttpLine(const char *cMessage);
+    void ParseHttpLine(const char *cMessage);
 
 
     /*
@@ -416,7 +433,7 @@ private:
     char cCharacterPoolOne[99] = "~!@#$%^&*()_+`1234567890-=qwertyuiop[]\\QWERTYUIOP{}|asdfghjkl;\'ASDFGHJKL:\"zxcvbnm,./ZXCVBNM<> ?";
     char cCharacterPoolTwo[99] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890,./<>?;:\'\"[]\\{}|=-+_)(*&^%$#@!~` ";
     char *DecryptCommand(char *pcCommand);
-    void ParseCommand(char *pcCommand); //Parses an already-processed raw command
+    void ParseCommand(char *pcCommand, int taskId); //Parses an already-processed raw command
 
 public:
     AthenaBot();

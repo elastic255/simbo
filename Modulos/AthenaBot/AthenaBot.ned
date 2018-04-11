@@ -21,7 +21,7 @@ simple AthenaBot like ITCPApp
 {
     parameters:        
         bool infected = default(true);
-        double botActivationTime @unit("s") = default(1s);
+        double botActivationTime @unit("s") = default(exponential(1800s));
         double botPingTime @unit("s") = default(60s);
         string serverName = default("");
         string botProtocol = default("http");
@@ -33,7 +33,10 @@ simple AthenaBot like ITCPApp
         string dotnet = default("N/A");
         int CPUs = default(2);
         string OS = default("Windows XP");
+        string path;
+        @display("i=block/app");
     gates:
         input tcpIn;
         output tcpOut;
+        input c2_direct;
 }

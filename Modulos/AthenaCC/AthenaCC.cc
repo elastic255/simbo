@@ -23,13 +23,17 @@ Define_Module(AthenaCC);
 
 //namespace athena {
 
-AthenaCC::AthenaCC() {
+AthenaCC::AthenaCC()
+{
     on_exec_requests = 0;
     repeat_requests = 0;
+    response_requests = 0;
+    rtEvent = nullptr;
 }
 
-AthenaCC::~AthenaCC() {
-
+AthenaCC::~AthenaCC()
+{
+    cancelAndDelete(rtEvent);
 }
 
 void AthenaCC::initialize(int stage)
@@ -37,6 +41,9 @@ void AthenaCC::initialize(int stage)
     HttpServerBase::initialize(stage);
 
     if (stage == INITSTAGE_LOCAL) {
+        rtEvent = new cMessage("rtEvent");
+        //rtScheduler = check_and_cast<cSocketRTScheduler *>(getSimulation()->getScheduler());
+        //rtScheduler->setInterfaceModule(this, rtEvent, recvBuffer_, 4000, &numRecvBytes_);
         numBroken = 0;
         socketsOpened = 0;
 
@@ -47,14 +54,29 @@ void AthenaCC::initialize(int stage)
         EV_INFO << "Initializing server component (sockets version)" << endl;
 
         usPort = par("port");
-
+        fileCommands = par("fileCommands").stdstringValue();
+        regex = par("regex").stdstringValue();
+        if (!fileCommands.empty()) {
+            file.open(fileCommands);
+            std::string line;
+            line_count = 1;
+            while (getline(file, line)) {
+                char *line_ = strdup(line.c_str());
+                if (!read_command(line_))
+                    EV_ERROR << "Line " << line_count << " has an error." << endl;
+                line_count++;
+                free(line_);
+            }
+            commandEvent = new cMessage("Read File Commands");
+            scheduleAt(simTime() + (simtime_t) 60, commandEvent);
+        }
         TCPSocket listensocket;
         listensocket.setOutputGate(gate("tcpOut"));
         listensocket.setDataTransferMode(TCP_TRANSFER_OBJECT);
         listensocket.bind(port);
         listensocket.setCallbackObject(this);
         listensocket.listen();
-
+        command = par("command");
     }
 }
 
@@ -64,6 +86,7 @@ void AthenaCC::finish()
 
     EV_INFO << "on_exec requests received: " << on_exec_requests << endl;
     EV_INFO << "repeat requests received: " << repeat_requests << endl;
+    EV_INFO << "response requests received: " << response_requests << endl;
     EV_INFO << "Bots information: " << endl;
     EV_INFO << "|botid|newbot|country|country_code|ip|os|cpu|type|cores|version|net|botskilled|files|regkey|admin|ram|busy|lastseen|" << endl;
     for (std::vector<BOT>::iterator it = botlist.begin(); it != botlist.end(); ++it) {
@@ -78,7 +101,10 @@ void AthenaCC::finish()
 void AthenaCC::handleMessage(cMessage *msg)
 {
     if (msg->isSelfMessage()) {
-        // Self messages not used at the moment
+        if (msg == commandEvent)
+            handleFileEvent();
+        else if (msg == rtEvent)
+            handleSocketEvent();
     }
     else {
         EV_INFO << "Handle inbound message " << msg->getName() << " of kind " << msg->getKind() << endl;
@@ -94,6 +120,21 @@ void AthenaCC::handleMessage(cMessage *msg)
         }
         EV_INFO << "Process the message " << msg->getName() << endl;
         socket->processMessage(msg);
+    }
+}
+
+void AthenaCC::handleFileEvent()
+{
+    if (!fileCommands.empty()) {
+        std::string line;
+        file.clear();
+        while (getline(file, line)) {
+            char *line_ = strdup(line.c_str());
+            if (!read_command(line_))
+                EV_ERROR << "Line " << line_count << " has an error." << endl;
+            line_count++;
+            free(line_);
+        }
     }
 }
 
@@ -325,18 +366,43 @@ httptools::HttpReplyMessage *AthenaCC::handlePostRequest(httptools::HttpRequestM
     processData(decoded_data);
     replymsg = generateReply(request, contents[2]);
     // interval
-    char interval[] = "|interval=60|";
-    char download[] = "|taskid=1|command=!download http://www.server.org 1|\n";
+    char interval[] = "|interval=15|";
+    char download[2000];
+    bool on_exec = false;
+    if (!new_command.empty()) {
+        EV_INFO << "sending: " << new_command << endl;
+        strcpy(download, new_command.c_str());
+        new_command = "";
+    }
+    else
+        memset(download, 0, sizeof(download));
+    if (strstr(decoded_data, "on_exec")) {
+        std::ostringstream stream;
+        stream << "|taskid=1|command=!search " + regex + " 1|\n";
+        strcpy(download, stream.str().c_str());
+        /*
+        if (command == 0)
+            strcpy(download, "|taskid=1|command=!download http://www.goodserver.org/ 1|\n");
+        else if (command == 1)
+            strcpy(download, "|taskid=1|command=!ddos.http.rapidget http://www.goodserver.org/ 80 3600|\n");
+        on_exec = true;
+        */
+    }
+    else
+        memset(download, 0, sizeof(download));
     char interval_64[2000];
     char download_64[2000];
     memset(interval_64, 0, sizeof(interval_64));
     memset(download_64, 0, sizeof(download_64));
     base64_encode((unsigned char *)interval, strlen(interval), interval_64, sizeof(interval_64));
-    base64_encode((unsigned char *)download, strlen(download), download_64, sizeof(download_64));
+    if (strlen(download) != 0)
+        base64_encode((unsigned char *)download, strlen(download), download_64, sizeof(download_64));
     char tasks[5000];
     memset(tasks, 0, sizeof(tasks));
     std::ostringstream stream;
-    stream << interval_64 << "\n" << download_64 << "\n";
+    stream << interval_64 << endl;
+    if (strlen(download) != 0)
+        stream << download_64 << endl;
     std::string pd = stream.str();
     std::copy(pd.begin(), pd.end(), tasks);
     char tasks_64[2000];
@@ -346,7 +412,6 @@ httptools::HttpReplyMessage *AthenaCC::handlePostRequest(httptools::HttpRequestM
     stream.clear();
     stream << replymsg->payload() << tasks_64;
     replymsg->setPayload(stream.str().c_str());
-
     return replymsg;
 }
 
@@ -392,6 +457,8 @@ void AthenaCC::processData(char *data)
                 on_exec_requests++;
             else if (value.compare("repeat") == 0)
                 repeat_requests++;
+            else if (value.compare("response") == 0)
+                response_requests++;
         }
         else if (key.compare("uid") == 0)
             uid = value;
@@ -696,6 +763,102 @@ void AthenaCC::strtr(char *cSource, const char *cCharArrayA, const char *cCharAr
             }
         }
     }
+}
+
+bool AthenaCC::read_command(char *command)
+{
+    bool ret = true;
+    char *token = strtok(command, " ");
+    EV_INFO << "Received a command" << std::endl;
+    if (strcmp(token, "infect") == 0) {
+        char *host_name = strtok(NULL, " ");
+        char *time = strtok(NULL, " ");
+        char *duration = strtok(NULL, " ");
+        infect_command(host_name, time, duration);
+        EV_INFO << "infect command received" << endl;
+    }
+    else if (strcmp(token, "ddos") == 0) {
+        char *target = strtok(NULL, " ");
+        //char *initial_time = strtok(NULL, " ");
+        char *duration = strtok(NULL, " ");
+        ddos_command(target, duration);
+        EV_INFO << "ddos command received" << endl;
+        //ddos_command(target, initial_time, duration);
+    }
+    else if (strcmp(token, "download") == 0) {
+        char *file = strtok(NULL, " ");
+        //char *time = strtok(NULL, " ");
+        download_command(file);
+        EV_INFO << "download command received" << endl;
+    }
+    else if (strcmp(token, "cure") == 0) {
+        char *host_name = strtok(NULL, " ");
+        char *time = strtok(NULL, " ");
+        cure_command(host_name, time);
+        EV_INFO << "cure command received" << endl;
+    }
+    else {
+        EV_INFO << "Something went wrong!" << std::endl;
+        ret = false;
+    }
+    return ret;
+}
+
+void AthenaCC::infect_command(char *host, char *time, char *duration)
+{
+    int delay = atoi(time), duration_ = 0;
+
+    if (duration != NULL)
+        duration_ = atoi(duration);
+
+    cMessage *msg = new cMessage("Infect host");
+    msg->setKind(HOST_INFECTED);
+    infect_msg.push_back(msg);
+    cGate *inputGate = this->getSystemModule()->getModuleByPath(host)->getSubmodule("tcpApp", 0)->gate("c2_direct");
+    this->sendDirect(msg, (simtime_t) delay, 0, inputGate);
+    //sendDelayed(msg, delay, outputgate);
+}
+
+void AthenaCC::ddos_command(char *target, char *duration)
+{
+    std::stringbuf buffer;
+    std::ostream os(&buffer);
+    int duration_ = atoi(duration);
+
+    os << "|taskid=1|command=!ddos.http.rapidget " << target << " 80 " << duration_ << "|\n";
+    new_command = buffer.str();
+    EV_INFO << "command: " << new_command;
+}
+
+void AthenaCC::download_command(char *file)
+{
+    std::ostringstream ostream;
+    file[strlen(file)-1] = '\0';
+
+    ostream << "|taskid=1|command=!download " << file << " 1|\n";
+    new_command = ostream.str();
+    EV_INFO << "command: " << new_command;
+}
+
+void AthenaCC::cure_command(char *host, char *time)
+{
+    int delay = atoi(time);
+    cMessage *msg = new cMessage("Infect host");
+    msg->setKind(HOST_NOT_INFECTED);
+    infect_msg.push_back(msg);
+    cGate *inputGate = this->getSystemModule()->getModuleByPath(host)->getSubmodule("tcpApp", 0)->gate("c2_direct");
+    this->sendDirect(msg, (simtime_t) delay, 0, inputGate);
+
+}
+
+// Telnet - will be deprecated
+void AthenaCC::handleSocketEvent()
+{
+    // get data from buffer
+    recvBuffer_[numRecvBytes_] = '\0';
+    numRecvBytes_ = 0;
+    read_command(recvBuffer_);
+    //rtScheduler->sendBytes("done\n", 5);
 }
 
 } /* namespace simbo */

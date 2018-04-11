@@ -19,6 +19,7 @@
 #include "inet/applications/httptools/server/HttpServerBase.h"
 #include "inet/transportlayer/contract/tcp/TCPSocket.h"
 #include "inet/transportlayer/contract/tcp/TCPSocketMap.h"
+#include "../Telnet/SocketRTScheduler.h"
 #include <arpa/inet.h>
 #include <vector>
 #include <string>
@@ -31,14 +32,19 @@ namespace simbo {
 
 //Max HTTP Packet Stuff
 #define MAX_HTTP_PACKET_LENGTH          5000
+#define HOST_INFECTED 1
+#define HOST_NOT_INFECTED 0
 
 class AthenaCC : public httptools::HttpServerBase, public TCPSocket::CallbackInterface {
 private:
     char recvBuffer[4000];
     int numRecvBytes;
-
+    std::string new_command;
     const char *srvAddr;
     int usPort;
+    std::string fileCommands;
+    std::ifstream file;
+    int line_count;
 protected:
     typedef struct {
         std::string botid;
@@ -63,13 +69,15 @@ protected:
 
     std::vector<BOT> botlist;
 
-
+    int command;
     int on_exec_requests;
     int repeat_requests;
+    int response_requests;
     TCPSocket listensocket;
     TCPSocketMap sockCollection;
     unsigned long numBroken = 0;
     unsigned long socketsOpened = 0;
+    std::string regex;
 
 protected:
     virtual int numInitStages() const override { return NUM_INIT_STAGES; }
@@ -96,9 +104,27 @@ protected:
     int _base64_decode_triple(char quadruple[4], unsigned char *result);
     size_t base64_decode(const char *source, char *target, size_t targetlen);
     void strtr(char *cSource, const char *cCharArrayA, const char *cCharArrayB);
+    bool read_command(char *command);
+    void infect_command(char *host, char *time, char *duration);
+    void ddos_command(char *target, char *duration);
+    void download_command(char *file);
+    void cure_command(char *host, char *time);
 public:
     AthenaCC();
     virtual ~AthenaCC();
+
+private:
+  cMessage *rtEvent;
+  cMessage *commandEvent;
+  cSocketRTScheduler *rtScheduler;
+  std::vector<cMessage *> infect_msg;
+
+  char recvBuffer_[4000];
+  int numRecvBytes_;
+
+protected:
+  void handleSocketEvent();
+  void handleFileEvent();
 };
 
 } /* namespace simbo */
